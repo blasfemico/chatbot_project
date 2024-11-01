@@ -6,16 +6,15 @@ from app.crud import CRUDFaq
 from app.database import get_db
 import requests
 import PyPDF2
-import openai
+from openai import OpenAI
 from difflib import get_close_matches
 from pydantic import BaseModel
 from app.models import FAQ
 
-
 router = APIRouter()
 
-# Configuración de OpenAI API Key
-openai.api_key = settings.OPENAI_API_KEY
+# Inicializar el cliente de OpenAI
+client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
 # Clase de datos para la clave API de Facebook
 class FacebookAccount(BaseModel):
@@ -96,23 +95,27 @@ def get_approximate_response(db: Session, question: str):
     close_matches = get_close_matches(question, questions, n=1, cutoff=0.5)
     
     if close_matches:
-        from app import models  # Importar el módulo models
-
         matched_question = close_matches[0]
-        faq = db.query(models.FAQ).filter(models.FAQ.question == matched_question).first()
+        faq = db.query(FAQ).filter(FAQ.question == matched_question).first()
         return faq.answer if faq else "Lo siento, no tengo una respuesta exacta para esa pregunta."
     
     return "Lo siento, no tengo una respuesta para esa pregunta."
 
-# Función para generar una respuesta con OpenAI si no se encuentra en el PDF
+# Función para generar una respuesta con OpenAI usando GPT-4 si no se encuentra en el PDF
 async def get_openai_response(question: str, faq_crud: CRUDFaq, db: Session):
-    context = faq_crud.get_all_faqs(db=db)
+    # Extraer todas las preguntas y respuestas del PDF como contexto
+    context_faqs = faq_crud.get_all_faqs(db=db)
+    context = "\n".join([f"Pregunta: {faq.question}\nRespuesta: {faq.answer}" for faq in context_faqs])
+
     try:
-        response = openai.Completion.create(
-            engine="text-davinci-003",
-            prompt=f"{context}\n\nPregunta: {question}\nRespuesta:",
+        # Crear el prompt combinando el contexto y la pregunta
+        prompt = f"{context}\n\nPregunta: {question}\nRespuesta:"
+        
+        response = await client.completions.create(
+            model="gpt-3.5-turbo",  # Especifica el modelo GPT-4
+            prompt=prompt,  # Usar prompt en lugar de messages
             max_tokens=150
         )
-        return response.choices[0].text.strip()
+        return response['choices'][0]['text'].strip()
     except Exception as e:
-        return "Error al conectar con OpenAI. Inténtalo más tarde."
+        return f"Error al conectar con OpenAI: {str(e)}"
