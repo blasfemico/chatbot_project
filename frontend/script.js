@@ -1,73 +1,127 @@
-// frontend/script.js
+const apiUrl = 'http://localhost:8000';
 
-// Conectar a una cuenta de Facebook usando la API Key
+// Función para conectar con Facebook Messenger
 async function connectFacebook() {
-    const apiKey = document.getElementById('facebook-api-key').value;
+    const apiKey = document.getElementById('facebookApiKeyInput').value;
+    if (!apiKey) {
+        alert('Por favor, ingrese un API Key válido.');
+        return;
+    }
+
     try {
-        const response = await fetch('http://localhost:8000/chatbot/facebook/connect/', {
+        const response = await fetch(`${apiUrl}/facebook/connect/`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ api_key: apiKey })
         });
         const result = await response.json();
-        document.getElementById('facebook-connection-status').innerText = result.status || "Error al conectar";
+        document.getElementById('facebookConnectionStatus').innerText = result.status || result.detail;
     } catch (error) {
-        console.error('Error en la conexión:', error);
-        document.getElementById('facebook-connection-status').innerText = "Error al conectar";
+        console.error('Error al conectar con Facebook:', error);
     }
 }
 
-// Subir PDF de preguntas y respuestas
+// Función para subir un PDF
 async function uploadPDF() {
-    const fileInput = document.getElementById('pdf-file');
+    const fileInput = document.getElementById('pdfFileInput');
+    const file = fileInput.files[0];
+    if (!file) {
+        alert('Por favor, seleccione un archivo PDF.');
+        return;
+    }
+
     const formData = new FormData();
-    formData.append('file', fileInput.files[0]);
+    formData.append('file', file);
 
     try {
-        const response = await fetch('http://localhost:8000/chatbot/pdf/upload/', {
+        const response = await fetch(`${apiUrl}/pdf/upload/`, {
             method: 'POST',
             body: formData
         });
         const result = await response.json();
-        document.getElementById('pdf-upload-status').innerText = result.message || "Error al subir PDF";
+        document.getElementById('pdfUploadStatus').innerText = result.message || result.detail;
     } catch (error) {
-        console.error('Error al subir PDF:', error);
-        document.getElementById('pdf-upload-status').innerText = "Error al subir PDF";
+        console.error('Error al subir el PDF:', error);
     }
 }
 
-// Realizar una pregunta al chatbot
-async function askQuestion() {
-    const question = document.getElementById('question-input').value;
+// Función para hacer preguntas al chatbot
+async function askChatbot() {
+    const question = document.getElementById('chatbotQuestionInput').value;
+    if (!question) {
+        alert('Por favor, ingrese una pregunta.');
+        return;
+    }
+
     try {
-        const response = await fetch('http://localhost:8000/chatbot/ask/', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ question: question })
-        });
+        const response = await fetch(`${apiUrl}/chatbot/ask/?question=${encodeURIComponent(question)}`);
         const result = await response.json();
-        document.getElementById('chatbot-response').innerText = result.answer || "Lo siento, no tengo una respuesta para esa pregunta";
+        document.getElementById('chatbotAnswer').innerText = result.answer;
     } catch (error) {
-        console.error('Error al preguntar al chatbot:', error);
-        document.getElementById('chatbot-response').innerText = "Error al obtener respuesta del chatbot";
+        console.error('Error al hacer la pregunta al chatbot:', error);
     }
 }
 
-// Conectar a WebSocket para recibir mensajes en tiempo real
-function connectWebSocket() {
-    const ws = new WebSocket("ws://localhost:8000/ws/chat");
-    ws.onmessage = (event) => {
-        const messageData = event.data;
-        const messageElement = document.createElement('p');
-        messageElement.textContent = messageData;
-        document.getElementById('realtime-messages').appendChild(messageElement);
-    };
-    ws.onclose = () => {
-        const messageElement = document.createElement('p');
-        messageElement.textContent = "Conexión WebSocket cerrada.";
-        document.getElementById('realtime-messages').appendChild(messageElement);
-    };
+// Función para obtener un pedido por ID
+async function getOrderById() {
+    const orderId = document.getElementById('orderIdInput').value;
+    if (!orderId) {
+        alert('Por favor, ingrese un ID válido.');
+        return;
+    }
+
+    try {
+        const response = await fetch(`${apiUrl}/orders/${orderId}`);
+        const order = await response.json();
+        document.getElementById('orderByIdResult').innerHTML = `
+            <p><strong>Pedido ID:</strong> ${order.id}</p>
+            <p><strong>Teléfono:</strong> ${order.phone}</p>
+            <p><strong>Email:</strong> ${order.email}</p>
+            <p><strong>Dirección:</strong> ${order.address}</p>
+        `;
+    } catch (error) {
+        console.error('Error al obtener el pedido:', error);
+    }
 }
 
-// Inicializar WebSocket al cargar la página
-document.addEventListener("DOMContentLoaded", connectWebSocket);
+// Función para obtener todos los pedidos
+async function getAllOrders() {
+    try {
+        const response = await fetch(`${apiUrl}/orders/`);
+        const orders = await response.json();
+        let output = '';
+        orders.forEach(order => {
+            output += `
+                <p><strong>Pedido ID:</strong> ${order.id}</p>
+                <p><strong>Teléfono:</strong> ${order.phone}</p>
+                <p><strong>Email:</strong> ${order.email}</p>
+                <p><strong>Dirección:</strong> ${order.address}</p>
+                <hr>
+            `;
+        });
+        document.getElementById('allOrdersResult').innerHTML = output || '<p>No hay pedidos disponibles.</p>';
+    } catch (error) {
+        console.error('Error al obtener los pedidos:', error);
+    }
+}
+
+// Función para obtener todos los productos
+async function getAllProducts() {
+    try {
+        const response = await fetch(`${apiUrl}/products/`);
+        const products = await response.json();
+        let output = '';
+        products.forEach(product => {
+            output += `
+                <p><strong>Producto ID:</strong> ${product.id}</p>
+                <p><strong>Nombre:</strong> ${product.name}</p>
+                <p><strong>Precio:</strong> $${product.price}</p>
+                <p><strong>Descripción:</strong> ${product.description || 'N/A'}</p>
+                <hr>
+            `;
+        });
+        document.getElementById('allProductsResult').innerHTML = output || '<p>No hay productos disponibles.</p>';
+    } catch (error) {
+        console.error('Error al obtener los productos:', error);
+    }
+}

@@ -1,44 +1,37 @@
-<!-- frontend/index.html -->
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chatbot Utilitarista</title>
+    <title>Gestión de Pedidos y Productos</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <h1>Interfaz de Chatbot</h1>
+    <div class="container">
+        <h1>Gestión de Pedidos y Productos</h1>
 
-    <!-- Conectar a Facebook -->
-    <section>
-        <h2>Conectar Cuenta de Facebook</h2>
-        <input type="text" id="facebook-api-key" placeholder="API Key de Facebook">
-        <button onclick="connectFacebook()">Conectar</button>
-        <p id="facebook-connection-status"></p>
-    </section>
+        <!-- Formulario para obtener un pedido por ID -->
+        <div class="form-section">
+            <h2>Obtener Pedido por ID</h2>
+            <input type="number" id="orderIdInput" placeholder="Ingrese ID del pedido">
+            <button onclick="getOrderById()">Buscar Pedido</button>
+            <div id="orderByIdResult" class="result"></div>
+        </div>
 
-    <!-- Cargar PDF para respuestas del chatbot -->
-    <section>
-        <h2>Subir PDF para Respuestas</h2>
-        <input type="file" id="pdf-file" accept="application/pdf">
-        <button onclick="uploadPDF()">Cargar PDF</button>
-        <p id="pdf-upload-status"></p>
-    </section>
+        <!-- Botón para obtener todos los pedidos -->
+        <div class="form-section">
+            <h2>Obtener Todos los Pedidos</h2>
+            <button onclick="getAllOrders()">Mostrar Pedidos</button>
+            <div id="allOrdersResult" class="result"></div>
+        </div>
 
-    <!-- Realizar una pregunta al chatbot -->
-    <section>
-        <h2>Realizar una Pregunta</h2>
-        <input type="text" id="question-input" placeholder="Escribe tu pregunta">
-        <button onclick="askQuestion()">Preguntar</button>
-        <p id="chatbot-response"></p>
-    </section>
-
-    <!-- Mensajes en tiempo real con WebSocket -->
-    <section>
-        <h2>Mensajes en Tiempo Real</h2>
-        <div id="realtime-messages"></div>
-    </section>
+        <!-- Botón para obtener todos los productos -->
+        <div class="form-section">
+            <h2>Lista de Productos</h2>
+            <button onclick="getAllProducts()">Mostrar Productos</button>
+            <div id="allProductsResult" class="result"></div>
+        </div>
+    </div>
 
     <script src="script.js"></script>
 </body>
