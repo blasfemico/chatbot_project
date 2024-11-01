@@ -1,8 +1,8 @@
 # app/models.py
-from sqlalchemy import Column, Integer, String, Float, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime
 from sqlalchemy.orm import relationship
 from app.database import Base
-
+from datetime import datetime
 # Tabla para almacenar preguntas y respuestas del chatbot
 class FAQ(Base):
     __tablename__ = "faqs"
@@ -40,3 +40,19 @@ class City(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, nullable=False)
     products = relationship("Product", back_populates="city")
+
+class Message(Base):
+    __tablename__ = "messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False)
+    content = Column(String, nullable=False)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
+# Modelo para almacenar cuentas de Facebook con API Keys
+class FacebookAccount(Base):
+    __tablename__ = "facebook_accounts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    account_name = Column(String, unique=True, nullable=False)
+    api_key = Column(String, nullable=False)

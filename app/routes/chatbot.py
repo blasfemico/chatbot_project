@@ -2,19 +2,19 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
 from sqlalchemy.orm import Session
 from app.config import settings
-from app.crud import CRUDFaq
+from app.crud import CRUDFaq, CRUDMessage, CRUDFacebookAccount
 from app.database import get_db
 import requests
 import PyPDF2
-from openai import OpenAI
+import openai
 from difflib import get_close_matches
 from pydantic import BaseModel
-from app.models import FAQ
+from app.models import FAQ, Message
 
 router = APIRouter()
 
-# Inicializar el cliente de OpenAI
-client = OpenAI(api_key=settings.OPENAI_API_KEY)
+# Inicializar la clave API de OpenAI
+openai.api_key = settings.OPENAI_API_KEY
 
 # Clase de datos para la clave API de Facebook
 class FacebookAccount(BaseModel):
@@ -101,21 +101,56 @@ def get_approximate_response(db: Session, question: str):
     
     return "Lo siento, no tengo una respuesta para esa pregunta."
 
-# Función para generar una respuesta con OpenAI usando GPT-4 si no se encuentra en el PDF
+# Función para generar una respuesta con OpenAI usando modelos de chat
 async def get_openai_response(question: str, faq_crud: CRUDFaq, db: Session):
     # Extraer todas las preguntas y respuestas del PDF como contexto
     context_faqs = faq_crud.get_all_faqs(db=db)
     context = "\n".join([f"Pregunta: {faq.question}\nRespuesta: {faq.answer}" for faq in context_faqs])
 
-    try:
-        # Crear el prompt combinando el contexto y la pregunta
-        prompt = f"{context}\n\nPregunta: {question}\nRespuesta:"
-        
-        response = await client.completions.create(
-            model="gpt-3.5-turbo",  # Especifica el modelo GPT-4
-            prompt=prompt,  # Usar prompt en lugar de messages
+    async def query_openai(model_name: str):
+        # Intenta realizar la solicitud de completions con el modelo especificado
+        return await openai.ChatCompletion.acreate(
+            model=model_name,
+            messages=[
+                {"role": "system", "content": "Actúa como un asistente de IA basado en el contenido proporcionado."},
+                {"role": "user", "content": f"{context}\n\nPregunta: {question}\nRespuesta:"}
+            ],
             max_tokens=150
         )
-        return response['choices'][0]['text'].strip()
+
+    try:
+        # Intentar con chatgpt4o primero
+        response = await query_openai("chatgpt4o")
+    except openai.BadRequestError:
+        # Si chatgpt4o no está disponible, intentar con gpt-3.5-turbo
+        response = await query_openai("gpt-3.5-turbo")
     except Exception as e:
         return f"Error al conectar con OpenAI: {str(e)}"
+    
+    # Devolver la respuesta en caso de éxito
+    return response['choices'][0]['message']['content'].strip()
+    
+# Crear un mensaje nuevo
+@router.post("/message/")
+async def create_message(user_id: int, content: str, db: Session = Depends(get_db)):
+    message_crud = CRUDMessage()
+    new_message = message_crud.create_message(db=db, user_id=user_id, content=content)
+    return {"message": "Mensaje guardado", "data": new_message}
+
+# Obtener historial de mensajes
+@router.get("/messages/")
+async def get_messages(skip: int = 0, limit: int = 10, db: Session = Depends(get_db)):
+    message_crud = CRUDMessage()
+    messages = message_crud.get_messages(db=db, skip=skip, limit=limit)
+    return {"data": messages}
+
+# Agregar o actualizar cuenta de Facebook
+@router.post("/facebook/account/")
+async def add_or_update_facebook_account(account_name: str, api_key: str, db: Session = Depends(get_db)):
+    facebook_crud = CRUDFacebookAccount()
+    account = facebook_crud.get_facebook_account(db=db, account_name=account_name)
+    if account:
+        account = facebook_crud.update_facebook_account(db=db, account_name=account_name, api_key=api_key)
+    else:
+        account = facebook_crud.add_facebook_account(db=db, account_name=account_name, api_key=api_key)
+    return {"message": "Cuenta de Facebook actualizada", "data": account}

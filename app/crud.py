@@ -2,6 +2,9 @@
 from sqlalchemy.orm import Session
 from app import models, schemas
 
+from sqlalchemy.orm import Session
+from app.models import Message, FacebookAccount
+
 # Clase CRUD para FAQs
 class CRUDFaq:
     def create_faq(self, db: Session, faq: schemas.FAQCreate):
@@ -105,3 +108,34 @@ class CRUDCity:
 
     def get_all_cities(self, db: Session, skip: int = 0, limit: int = 10):
         return db.query(models.City).offset(skip).limit(limit).all()
+
+class CRUDMessage:
+    def create_message(self, db: Session, user_id: int, content: str):
+        message = Message(user_id=user_id, content=content)
+        db.add(message)
+        db.commit()
+        db.refresh(message)
+        return message
+
+    def get_messages(self, db: Session, skip: int = 0, limit: int = 10):
+        return db.query(Message).order_by(Message.timestamp.desc()).offset(skip).limit(limit).all()
+
+# CRUD para cuentas de Facebook
+class CRUDFacebookAccount:
+    def add_facebook_account(self, db: Session, account_name: str, api_key: str):
+        account = FacebookAccount(account_name=account_name, api_key=api_key)
+        db.add(account)
+        db.commit()
+        db.refresh(account)
+        return account
+
+    def get_facebook_account(self, db: Session, account_name: str):
+        return db.query(FacebookAccount).filter(FacebookAccount.account_name == account_name).first()
+
+    def update_facebook_account(self, db: Session, account_name: str, api_key: str):
+        account = self.get_facebook_account(db, account_name)
+        if account:
+            account.api_key = api_key
+            db.commit()
+            db.refresh(account)
+        return account
