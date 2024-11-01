@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+sqlalchemy
+pydantic
+databases
+aiofiles
+openai
+PyMuPDF
+PyPDF2
+python-multipart
