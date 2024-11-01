@@ -3,7 +3,7 @@
 // Conectar a una cuenta de Facebook usando la API Key
 async function connectFacebook() {
     const apiKey = document.getElementById('facebook-api-key').value;
-    const response = await fetch('/facebook/connect/', {
+    const response = await fetch('http://localhost:8000/facebook/connect/', {  // Ruta ajustada para localhost
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ api_key: apiKey })
@@ -19,7 +19,7 @@ async function uploadPDF() {
     const formData = new FormData();
     formData.append('file', fileInput.files[0]);
 
-    const response = await fetch('/pdf/upload/', {
+    const response = await fetch('http://localhost:8000/pdf/upload/', {  // Ruta ajustada para localhost
         method: 'POST',
         body: formData
     });
@@ -30,7 +30,7 @@ async function uploadPDF() {
 
 // Cargar y actualizar la lista de pedidos
 async function loadOrders() {
-    const response = await fetch('/orders/');
+    const response = await fetch('http://localhost:8000/orders/');  // Ruta ajustada para localhost
     const orders = await response.json();
 
     const orderList = document.getElementById('order-list');
@@ -44,12 +44,29 @@ async function loadOrders() {
 
 // Conectar a WebSocket para recibir actualizaciones en tiempo real de mensajes
 function connectWebSocket() {
-    const ws = new WebSocket("ws://localhost:8000/ws/messenger");
+    const ws = new WebSocket("ws://localhost:8000/ws/messenger");  // WebSocket ajustado para localhost
     ws.onmessage = (event) => {
         const messageData = JSON.parse(event.data);
         console.log("Mensaje recibido:", messageData);
     };
     ws.onclose = () => console.log("Conexión cerrada");
+}
+
+// Nueva función para conectar al backend de manera general con una API Key
+async function connectToBackend(apiKey) {
+    try {
+        const response = await fetch('http://localhost:8000/connect/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ api_key: apiKey })
+        });
+        const data = await response.json();
+        console.log('Conexión:', data);
+    } catch (error) {
+        console.error('Error en la conexión:', error);
+    }
 }
 
 // Inicialización de funciones al cargar la página

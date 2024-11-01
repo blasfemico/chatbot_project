@@ -2,6 +2,7 @@
 from fastapi import FastAPI
 from app.database import Base, engine
 from app.routes import facebook, pdf, orders, websockets
+from app.cors import app as cors_app
 
 app = FastAPI()
 
