@@ -1,16 +1,17 @@
 # main.py
 from fastapi import FastAPI
 from app.database import Base, engine
+from app.config import settings
 from app.routes import chatbot, orders, websockets
 from fastapi.middleware.cors import CORSMiddleware
 
 # Inicializar la aplicación FastAPI
-app = FastAPI()
+app = FastAPI(title=settings.PROJECT_NAME)
 
-# Configuración de CORS
+# Configuración de CORS para permitir accesos de dominios externos
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Cambia "*" por los dominios específicos en producción
+    allow_origins=["*"],  # Cambiar "*" por dominios específicos en producción
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

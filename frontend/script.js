@@ -4,11 +4,9 @@
 async function connectFacebook() {
     const apiKey = document.getElementById('facebook-api-key').value;
     try {
-        const response = await fetch('http://localhost:8000/facebook/connect/', {
+        const response = await fetch('http://localhost:8000/chatbot/facebook/connect/', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ api_key: apiKey })
         });
         const result = await response.json();
@@ -26,7 +24,7 @@ async function uploadPDF() {
     formData.append('file', fileInput.files[0]);
 
     try {
-        const response = await fetch('http://localhost:8000/pdf/upload/', {
+        const response = await fetch('http://localhost:8000/chatbot/pdf/upload/', {
             method: 'POST',
             body: formData
         });
@@ -44,9 +42,7 @@ async function askQuestion() {
     try {
         const response = await fetch('http://localhost:8000/chatbot/ask/', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ question: question })
         });
         const result = await response.json();
@@ -56,3 +52,22 @@ async function askQuestion() {
         document.getElementById('chatbot-response').innerText = "Error al obtener respuesta del chatbot";
     }
 }
+
+// Conectar a WebSocket para recibir mensajes en tiempo real
+function connectWebSocket() {
+    const ws = new WebSocket("ws://localhost:8000/ws/chat");
+    ws.onmessage = (event) => {
+        const messageData = event.data;
+        const messageElement = document.createElement('p');
+        messageElement.textContent = messageData;
+        document.getElementById('realtime-messages').appendChild(messageElement);
+    };
+    ws.onclose = () => {
+        const messageElement = document.createElement('p');
+        messageElement.textContent = "Conexión WebSocket cerrada.";
+        document.getElementById('realtime-messages').appendChild(messageElement);
+    };
+}
+
+// Inicializar WebSocket al cargar la página
+document.addEventListener("DOMContentLoaded", connectWebSocket);

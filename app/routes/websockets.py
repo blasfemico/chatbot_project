@@ -1,10 +1,10 @@
 # app/routes/websockets.py
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from typing import List
-import json
 
 router = APIRouter()
 
+# Administrador de conexiones WebSocket
 class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
@@ -25,16 +25,14 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-@router.websocket("/ws/messenger")
+# Endpoint de WebSocket para la comunicación en tiempo real
+@router.websocket("/ws/chat")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
     try:
         while True:
             data = await websocket.receive_text()
-            message_data = json.loads(data)
-            response_message = {"message": "Mensaje recibido", "data": message_data}
-            await manager.send_personal_message(json.dumps(response_message), websocket)
-
+            await manager.broadcast(f"Mensaje recibido: {data}")
     except WebSocketDisconnect:
         manager.disconnect(websocket)
-        print("Cliente desconectado")
+        await manager.broadcast("Un usuario se ha desconectado")

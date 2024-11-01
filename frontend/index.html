@@ -18,7 +18,7 @@
         <p id="facebook-connection-status"></p>
     </section>
 
-    <!-- Cargar PDF -->
+    <!-- Cargar PDF para respuestas del chatbot -->
     <section>
         <h2>Subir PDF para Respuestas</h2>
         <input type="file" id="pdf-file" accept="application/pdf">
@@ -26,12 +26,18 @@
         <p id="pdf-upload-status"></p>
     </section>
 
-    <!-- Preguntar al Chatbot -->
+    <!-- Realizar una pregunta al chatbot -->
     <section>
         <h2>Realizar una Pregunta</h2>
         <input type="text" id="question-input" placeholder="Escribe tu pregunta">
         <button onclick="askQuestion()">Preguntar</button>
         <p id="chatbot-response"></p>
+    </section>
+
+    <!-- Mensajes en tiempo real con WebSocket -->
+    <section>
+        <h2>Mensajes en Tiempo Real</h2>
+        <div id="realtime-messages"></div>
     </section>
 
     <script src="script.js"></script>
