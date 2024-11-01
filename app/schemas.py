@@ -14,7 +14,7 @@ class FAQ(FAQBase):
     id: int
 
     class Config:
-        from_attributes= True
+        from_attributes = True
 
 # Esquema para la tabla Order
 class OrderBase(BaseModel):

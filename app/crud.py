@@ -28,7 +28,7 @@ class CRUDFaq:
             db_faq = models.FAQ(question=item["question"], answer=item["answer"])
             db.add(db_faq)
         db.commit()
-        
+
     def get_response(self, db: Session, question: str):
         faq = db.query(models.FAQ).filter(models.FAQ.question == question).first()
         if faq:
@@ -50,6 +50,7 @@ class CRUDOrder:
     def get_all_orders(self, db: Session, skip: int = 0, limit: int = 10):
         return db.query(models.Order).offset(skip).limit(limit).all()
 
+    
 
 # Clase CRUD para Products
 class CRUDProduct:

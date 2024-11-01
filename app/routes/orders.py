@@ -8,7 +8,7 @@ from app.database import get_db
 router = APIRouter()
 
 # Crear un nuevo pedido
-@router.post("/orders/", response_model=schemas.Order)
+@router.post("/", response_model=schemas.Order)
 async def create_order(order: schemas.OrderCreate, db: Session = Depends(get_db)):
     try:
         crud_order = CRUDOrder()
@@ -18,7 +18,7 @@ async def create_order(order: schemas.OrderCreate, db: Session = Depends(get_db)
         raise HTTPException(status_code=400, detail=f"Error al crear el pedido: {str(e)}")
 
 # Obtener todos los pedidos
-@router.get("/orders/", response_model=list[schemas.Order])
+@router.get("/", response_model=list[schemas.Order])
 async def get_orders(skip: int = 0, limit: int = 10, db: Session = Depends(get_db)):
     try:
         crud_order = CRUDOrder()
@@ -26,3 +26,15 @@ async def get_orders(skip: int = 0, limit: int = 10, db: Session = Depends(get_d
         return orders
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error al obtener los pedidos: {str(e)}")
+
+# Obtener un pedido por su ID
+@router.get("/{order_id}", response_model=schemas.Order)
+async def get_order_by_id(order_id: int, db: Session = Depends(get_db)):
+    try:
+        crud_order = CRUDOrder()
+        order = crud_order.get_order_by_id(db=db, order_id=order_id)
+        if order is None:
+            raise HTTPException(status_code=404, detail="Pedido no encontrado")
+        return order
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error al obtener el pedido: {str(e)}")
