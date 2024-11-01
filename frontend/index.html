@@ -4,28 +4,35 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Frontend Connection Test</title>
+    <title>Chatbot Utilitarista</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <h1>Conexión al Backend</h1>
+    <h1>Interfaz de Chatbot</h1>
 
-    <!-- Conexión a Facebook -->
-    <input type="text" id="facebook-api-key" placeholder="API Key de Facebook">
-    <button onclick="connectFacebook()">Conectar a Facebook</button>
-    <p id="facebook-connection-status"></p>
+    <!-- Conectar a Facebook -->
+    <section>
+        <h2>Conectar Cuenta de Facebook</h2>
+        <input type="text" id="facebook-api-key" placeholder="API Key de Facebook">
+        <button onclick="connectFacebook()">Conectar</button>
+        <p id="facebook-connection-status"></p>
+    </section>
 
-    <!-- Subir PDF -->
-    <input type="file" id="pdf-file">
-    <button onclick="uploadPDF()">Subir PDF</button>
-    <p id="pdf-upload-status"></p>
+    <!-- Cargar PDF -->
+    <section>
+        <h2>Subir PDF para Respuestas</h2>
+        <input type="file" id="pdf-file" accept="application/pdf">
+        <button onclick="uploadPDF()">Cargar PDF</button>
+        <p id="pdf-upload-status"></p>
+    </section>
 
-    <!-- Cargar Pedidos -->
-    <ul id="order-list"></ul>
-
-    <!-- Conectar con el Backend general -->
-    <input type="text" id="apiKey" placeholder="Ingresa la clave API">
-    <button onclick="connectToBackend(document.getElementById('apiKey').value)">Conectar</button>
+    <!-- Preguntar al Chatbot -->
+    <section>
+        <h2>Realizar una Pregunta</h2>
+        <input type="text" id="question-input" placeholder="Escribe tu pregunta">
+        <button onclick="askQuestion()">Preguntar</button>
+        <p id="chatbot-response"></p>
+    </section>
 
     <script src="script.js"></script>
 </body>

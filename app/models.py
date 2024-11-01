@@ -1,13 +1,6 @@
 # app/models.py
-from sqlalchemy import Column, Integer, String, Text
-from .database import Base
-
-class Account(Base):
-    __tablename__ = "accounts"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    api_key = Column(String, unique=True, nullable=False)
-    name = Column(String, nullable=False)
+from sqlalchemy import Column, Integer, String, ForeignKey
+from app.database import Base
 
 class Order(Base):
     __tablename__ = "orders"
@@ -15,4 +8,11 @@ class Order(Base):
     id = Column(Integer, primary_key=True, index=True)
     phone = Column(String, nullable=False)
     email = Column(String, nullable=False)
-    address = Column(Text, nullable=False)
+    address = Column(String, nullable=False)
+
+class FAQ(Base):
+    __tablename__ = "faqs"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    question = Column(String, nullable=False)
+    answer = Column(String, nullable=False)

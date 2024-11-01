@@ -1,18 +1,30 @@
-# app/main.py
+# main.py
 from fastapi import FastAPI
 from app.database import Base, engine
-from app.routes import facebook, pdf, orders, websockets
-from app.cors import app as cors_app
+from app.routes import chatbot, orders, websockets
+from fastapi.middleware.cors import CORSMiddleware
 
+# Inicializar la aplicación FastAPI
 app = FastAPI()
 
+# Configuración de CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Cambia "*" por los dominios específicos en producción
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Crear las tablas en la base de datos
 Base.metadata.create_all(bind=engine)
 
-app.include_router(facebook.router, prefix="/facebook", tags=["Facebook"])
-app.include_router(pdf.router, prefix="/pdf", tags=["PDF"])
+# Incluir las rutas con prefijos y etiquetas para organización
+app.include_router(chatbot.router, prefix="/chatbot", tags=["Chatbot"])
 app.include_router(orders.router, prefix="/orders", tags=["Orders"])
-app.include_router(websockets.router)
+app.include_router(websockets.router, tags=["WebSocket"])
 
+# Ruta raíz para verificación
 @app.get("/")
 async def root():
     return {"message": "Bienvenido al Chatbot API"}

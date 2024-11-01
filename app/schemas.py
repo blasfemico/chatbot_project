@@ -1,19 +1,5 @@
 # app/schemas.py
 from pydantic import BaseModel
-from typing import Optional
-
-class AccountBase(BaseModel):
-    api_key: str
-    name: Optional[str] = None
-
-class AccountCreate(AccountBase):
-    pass
-
-class AccountResponse(AccountBase):
-    id: int
-
-    class Config:
-        from_attributes = True
 
 class OrderBase(BaseModel):
     phone: str
@@ -23,8 +9,8 @@ class OrderBase(BaseModel):
 class OrderCreate(OrderBase):
     pass
 
-class OrderResponse(OrderBase):
+class Order(OrderBase):
     id: int
 
     class Config:
-        from_attributes = True
+        from_attributes= True
