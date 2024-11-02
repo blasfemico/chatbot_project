@@ -6,7 +6,10 @@ from app.crud import CRUDFaq, CRUDMessage, CRUDFacebookAccount
 from app.database import get_db
 import requests
 import PyPDF2
+from openai import AsyncOpenAI
 import openai
+
+aclient = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 from difflib import get_close_matches
 from pydantic import BaseModel
 from app.models import FAQ, Message
@@ -14,7 +17,6 @@ from app.models import FAQ, Message
 router = APIRouter()
 
 # Inicializar la clave API de OpenAI
-openai.api_key = settings.OPENAI_API_KEY
 
 # Clase de datos para la clave API de Facebook
 class FacebookAccount(BaseModel):
@@ -44,11 +46,11 @@ async def upload_pdf(file: UploadFile = File(...), db: Session = Depends(get_db)
     try:
         reader = PyPDF2.PdfReader(file.file)
         pdf_content = []
-        
+
         # Leer y procesar cada página del PDF
         for page in reader.pages:
             pdf_content.append(page.extract_text())
-        
+
         # Procesar el contenido en preguntas y respuestas
         questions_and_answers = parse_pdf_content(pdf_content)
 
@@ -80,7 +82,7 @@ async def ask_question(question: str, db: Session = Depends(get_db)):
     if answer == "Lo siento, no tengo una respuesta para esa pregunta.":
         # Si no hay coincidencia exacta, busca una coincidencia aproximada
         answer = get_approximate_response(db, question)
-        
+
         # Si no encuentra una coincidencia aproximada, utiliza OpenAI
         if answer == "Lo siento, no tengo una respuesta para esa pregunta.":
             answer = await get_openai_response(question, faq_crud, db)
@@ -93,12 +95,12 @@ def get_approximate_response(db: Session, question: str):
     faqs = faq_crud.get_all_faqs(db)
     questions = [faq.question for faq in faqs]
     close_matches = get_close_matches(question, questions, n=1, cutoff=0.5)
-    
+
     if close_matches:
         matched_question = close_matches[0]
         faq = db.query(FAQ).filter(FAQ.question == matched_question).first()
         return faq.answer if faq else "Lo siento, no tengo una respuesta exacta para esa pregunta."
-    
+
     return "Lo siento, no tengo una respuesta para esa pregunta."
 
 # Función para generar una respuesta con OpenAI usando modelos de chat
@@ -109,14 +111,12 @@ async def get_openai_response(question: str, faq_crud: CRUDFaq, db: Session):
 
     async def query_openai(model_name: str):
         # Intenta realizar la solicitud de completions con el modelo especificado
-        return await openai.ChatCompletion.acreate(
-            model=model_name,
-            messages=[
-                {"role": "system", "content": "Actúa como un asistente de IA basado en el contenido proporcionado."},
-                {"role": "user", "content": f"{context}\n\nPregunta: {question}\nRespuesta:"}
-            ],
-            max_tokens=150
-        )
+        return await aclient.chat.completions.create(model=model_name,
+        messages=[
+            {"role": "system", "content": "Actúa como un asistente de IA basado en el contenido proporcionado."},
+            {"role": "user", "content": f"{context}\n\nPregunta: {question}\nRespuesta:"}
+        ],
+        max_tokens=150)
 
     try:
         # Intentar con chatgpt4o primero
@@ -126,10 +126,10 @@ async def get_openai_response(question: str, faq_crud: CRUDFaq, db: Session):
         response = await query_openai("gpt-3.5-turbo")
     except Exception as e:
         return f"Error al conectar con OpenAI: {str(e)}"
-    
+
     # Devolver la respuesta en caso de éxito
     return response['choices'][0]['message']['content'].strip()
-    
+
 # Crear un mensaje nuevo
 @router.post("/message/")
 async def create_message(user_id: int, content: str, db: Session = Depends(get_db)):
