@@ -120,7 +120,7 @@ async def get_openai_response(question: str, faq_crud: CRUDFaq, db: Session):
 
     try:
         # Intentar con chatgpt4o primero
-        response = await query_openai("chatgpt4o")
+        response = await query_openai("chatgpt-4")
     except openai.BadRequestError:
         # Si chatgpt4o no está disponible, intentar con gpt-3.5-turbo
         response = await query_openai("gpt-3.5-turbo")
