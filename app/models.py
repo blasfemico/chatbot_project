@@ -3,13 +3,23 @@ from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime
 from sqlalchemy.orm import relationship
 from app.database import Base
 from datetime import datetime
-# Tabla para almacenar preguntas y respuestas del chatbot
+
+class PDF(Base):
+    __tablename__ = "pdfs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)  # Nombre del PDF
+    faqs = relationship("FAQ", back_populates="pdf")  # Relación con FAQ
+
 class FAQ(Base):
     __tablename__ = "faqs"
 
     id = Column(Integer, primary_key=True, index=True)
     question = Column(String, nullable=False)
     answer = Column(String, nullable=False)
+    pdf_id = Column(Integer, ForeignKey("pdfs.id"))  # Definir ForeignKey correctamente
+    pdf = relationship("PDF", back_populates="faqs")  # Relación inversa
+
 
 # Tabla para almacenar pedidos
 class Order(Base):
@@ -56,3 +66,4 @@ class FacebookAccount(Base):
     id = Column(Integer, primary_key=True, index=True)
     account_name = Column(String, unique=True, nullable=False)
     api_key = Column(String, nullable=False)
+

@@ -20,25 +20,27 @@ class CRUDFaq:
     def get_all_faqs(self, db: Session, skip: int = 0, limit: int = 10):
         return db.query(models.FAQ).offset(skip).limit(limit).all()
 
-    # Método para almacenar el contenido del PDF como preguntas y respuestas
-    def store_pdf_content(self, db: Session, content: list[dict]):
-        # Limpia la tabla de FAQs antes de agregar nuevos registros (opcional)
-        db.query(models.FAQ).delete()
+    def create_pdf_with_faqs(self, db: Session, pdf_name: str, content: list[dict]):
+        # Crear un nuevo registro PDF
+        db_pdf = models.PDF(name=pdf_name)
+        db.add(db_pdf)
         db.commit()
-        
-        # Guarda las nuevas preguntas y respuestas
+        db.refresh(db_pdf)
+
+        # Guardar cada pregunta y respuesta asociada al PDF
         for item in content:
-            db_faq = models.FAQ(question=item["question"], answer=item["answer"])
+            db_faq = models.FAQ(question=item["question"], answer=item["answer"], pdf_id=db_pdf.id)
             db.add(db_faq)
         db.commit()
 
+        return db_pdf
     def get_response(self, db: Session, question: str):
         faq = db.query(models.FAQ).filter(models.FAQ.question == question).first()
         if faq:
             return faq.answer
         return "Lo siento, no tengo una respuesta para esa pregunta."
 
-# Clase CRUD para Orders
+
 class CRUDOrder:
     def create_order(self, db: Session, order: schemas.OrderCreate):
         db_order = models.Order(phone=order.phone, email=order.email, address=order.address)

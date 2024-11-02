@@ -1,4 +1,3 @@
-# app/routes/chatbot.py
 from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
 from sqlalchemy.orm import Session
 from app.config import settings
@@ -6,19 +5,22 @@ from app.crud import CRUDFaq, CRUDMessage, CRUDFacebookAccount
 from app.database import get_db
 import requests
 import PyPDF2
-from openai import AsyncOpenAI
-import openai
+import os
+import json
+from openai import OpenAI
+import re
 
-aclient = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+client = OpenAI()
+
+# Inicializar cliente de OpenAI
+aclient = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 from difflib import get_close_matches
 from pydantic import BaseModel
 from app.models import FAQ, Message
 
 router = APIRouter()
 
-# Inicializar la clave API de OpenAI
 
-# Clase de datos para la clave API de Facebook
 class FacebookAccount(BaseModel):
     api_key: str
 
@@ -40,52 +42,75 @@ async def connect_facebook(account: FacebookAccount):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error al conectar: {str(e)}")
 
+# Función para extraer preguntas y respuestas usando OpenAI
+
+
+def extract_questions_and_answers_with_ai(content):
+    full_text = "\n".join(content)
+    prompt = (
+        f"Extrae las preguntas y respuestas del siguiente texto y devuélvelo en un formato JSON "
+        f"estrictamente válido. Asegúrate de que el JSON contenga solo objetos con 'question' y 'answer' "
+        f"y no incluya otros caracteres.\n\n{full_text}"
+    )
+
+    # Solicitud a OpenAI para procesar el texto
+    response = client.chat.completions.create(model="gpt-3.5-turbo",
+    messages=[
+        {"role": "system", "content": "Eres un asistente que ayuda a extraer preguntas y respuestas de texto en un JSON válido."},
+        {"role": "user", "content": prompt}
+    ])
+
+    # Accedemos al contenido de la respuesta
+    response_text = response.choices[0].message.content.strip()
+
+    try:
+        questions_and_answers = json.loads(response_text)
+        return questions_and_answers
+    except json.JSONDecodeError:
+        # Intentar corregir el JSON eliminando texto no válido y volviendo a cargarlo
+        corrected_text = correct_json(response_text)
+        try:
+            return json.loads(corrected_text)
+        except json.JSONDecodeError:
+            raise ValueError("Error al procesar la respuesta de OpenAI: el formato de JSON es inválido.")
+
+def correct_json(text):
+    # Elimina caracteres extraños al inicio y al final del texto que puedan interferir con el formato JSON
+    text = re.sub(r'^[^{\[]+', '', text)  # Elimina cualquier cosa antes del primer { o [
+    text = re.sub(r'[^}\]]+$', '', text)  # Elimina cualquier cosa después del último } o ]
+    return text
 # Subir PDF y almacenar contenido para respuestas del chatbot
+
 @router.post("/pdf/upload/")
 async def upload_pdf(file: UploadFile = File(...), db: Session = Depends(get_db)):
     try:
         reader = PyPDF2.PdfReader(file.file)
-        pdf_content = []
+        pdf_content = [page.extract_text() for page in reader.pages]
 
-        # Leer y procesar cada página del PDF
-        for page in reader.pages:
-            pdf_content.append(page.extract_text())
+        
+        questions_and_answers = extract_questions_and_answers_with_ai(pdf_content)
 
-        # Procesar el contenido en preguntas y respuestas
-        questions_and_answers = parse_pdf_content(pdf_content)
-
-        # Guardar preguntas y respuestas en la base de datos
+        
         faq_crud = CRUDFaq()
-        faq_crud.store_pdf_content(db=db, content=questions_and_answers)
+        faq_crud.create_pdf_with_faqs(db=db, pdf_name=file.filename, content=questions_and_answers)
 
         return {"message": "PDF cargado y procesado correctamente"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error al procesar el PDF: {str(e)}")
 
-# Función para procesar el contenido del PDF
-def parse_pdf_content(content):
-    questions_and_answers = []
-    for line in content:
-        if "Pregunta:" in line and "Respuesta:" in line:
-            parts = line.split("Respuesta:")
-            question = parts[0].replace("Pregunta:", "").strip()
-            answer = parts[1].strip()
-            questions_and_answers.append({"question": question, "answer": answer})
-    return questions_and_answers
-
-# Preguntar al chatbot
+# Preguntar al chatbot, modificado para responder solo con el contenido del PDF
 @router.post("/chatbot/ask/")
 async def ask_question(question: str, db: Session = Depends(get_db)):
     faq_crud = CRUDFaq()
     answer = faq_crud.get_response(db=db, question=question)
 
+    
     if answer == "Lo siento, no tengo una respuesta para esa pregunta.":
-        # Si no hay coincidencia exacta, busca una coincidencia aproximada
         answer = get_approximate_response(db, question)
 
-        # Si no encuentra una coincidencia aproximada, utiliza OpenAI
-        if answer == "Lo siento, no tengo una respuesta para esa pregunta.":
-            answer = await get_openai_response(question, faq_crud, db)
+    
+    if answer == "Lo siento, no tengo una respuesta para esa pregunta.":
+        return {"answer": "Lo siento, solo puedo responder preguntas relacionadas con el contenido proporcionado en este documento."}
 
     return {"answer": answer}
 
@@ -102,33 +127,6 @@ def get_approximate_response(db: Session, question: str):
         return faq.answer if faq else "Lo siento, no tengo una respuesta exacta para esa pregunta."
 
     return "Lo siento, no tengo una respuesta para esa pregunta."
-
-# Función para generar una respuesta con OpenAI usando modelos de chat
-async def get_openai_response(question: str, faq_crud: CRUDFaq, db: Session):
-    # Extraer todas las preguntas y respuestas del PDF como contexto
-    context_faqs = faq_crud.get_all_faqs(db=db)
-    context = "\n".join([f"Pregunta: {faq.question}\nRespuesta: {faq.answer}" for faq in context_faqs])
-
-    async def query_openai(model_name: str):
-        # Intenta realizar la solicitud de completions con el modelo especificado
-        return await aclient.chat.completions.create(model=model_name,
-        messages=[
-            {"role": "system", "content": "Actúa como un asistente de IA basado en el contenido proporcionado."},
-            {"role": "user", "content": f"{context}\n\nPregunta: {question}\nRespuesta:"}
-        ],
-        max_tokens=150)
-
-    try:
-        # Intentar con chatgpt4o primero
-        response = await query_openai("chatgpt-4")
-    except openai.BadRequestError:
-        # Si chatgpt4o no está disponible, intentar con gpt-3.5-turbo
-        response = await query_openai("gpt-3.5-turbo")
-    except Exception as e:
-        return f"Error al conectar con OpenAI: {str(e)}"
-
-    # Devolver la respuesta en caso de éxito
-    return response['choices'][0]['message']['content'].strip()
 
 # Crear un mensaje nuevo
 @router.post("/message/")
