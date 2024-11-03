@@ -4,6 +4,10 @@ from app import models, schemas
 
 from sqlalchemy.orm import Session
 from app.models import Message, FacebookAccount
+from sqlalchemy.orm import Session
+from app.models import FAQ, PDF 
+from typing import List, Dict
+
 
 # Clase CRUD para FAQs
 class CRUDFaq:
@@ -20,20 +24,20 @@ class CRUDFaq:
     def get_all_faqs(self, db: Session, skip: int = 0, limit: int = 10):
         return db.query(models.FAQ).offset(skip).limit(limit).all()
 
-    def create_pdf_with_faqs(self, db: Session, pdf_name: str, content: list[dict]):
-        # Crear un nuevo registro PDF
-        db_pdf = models.PDF(name=pdf_name)
-        db.add(db_pdf)
+    
+    def create_pdf_with_faqs(self, db: Session, content: List[Dict[str, str]], pdf_name: str):
+        pdf_record = PDF(name=pdf_name)
+        db.add(pdf_record)
         db.commit()
-        db.refresh(db_pdf)
-
-        # Guardar cada pregunta y respuesta asociada al PDF
+        db.refresh(pdf_record)
+        
         for item in content:
-            db_faq = models.FAQ(question=item["question"], answer=item["answer"], pdf_id=db_pdf.id)
-            db.add(db_faq)
+            question = item.get("question")
+            answer = item.get("answer")
+            faq_entry = FAQ(question=question, answer=answer, pdf_id=pdf_record.id)
+            db.add(faq_entry)
+        
         db.commit()
-
-        return db_pdf
     def get_response(self, db: Session, question: str):
         faq = db.query(models.FAQ).filter(models.FAQ.question == question).first()
         if faq:
