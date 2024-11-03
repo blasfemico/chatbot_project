@@ -1,73 +1,57 @@
-/* style.css */
-
 body {
     font-family: Arial, sans-serif;
-    background-color: #f0f2f5;
-    color: #333;
     margin: 0;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    height: 100vh;
+    padding: 0;
 }
 
-.container {
-    background-color: #fff;
-    padding: 20px;
-    border-radius: 8px;
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-    width: 90%;
-    max-width: 600px;
-}
-
-h1 {
+header {
+    background-color: #4CAF50;
+    color: white;
+    padding: 1em;
     text-align: center;
-    color: #4CAF50;
 }
 
-h2 {
-    color: #333;
+nav ul {
+    display: flex;
+    justify-content: space-around;
+    background-color: #333;
+    list-style-type: none;
+    padding: 0;
 }
 
-.form-section {
-    margin-bottom: 20px;
+nav ul li a {
+    color: white;
+    padding: 1em;
+    text-decoration: none;
 }
 
-input[type="number"] {
+main {
+    padding: 2em;
+}
+
+section {
+    margin-bottom: 2em;
+}
+
+#order-table {
     width: 100%;
-    padding: 10px;
-    margin-top: 10px;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    box-sizing: border-box;
+    border-collapse: collapse;
+}
+
+#order-table th, #order-table td {
+    border: 1px solid #ddd;
+    padding: 8px;
+}
+
+#order-table th {
+    background-color: #f2f2f2;
 }
 
 button {
+    padding: 0.5em 1em;
+    margin-top: 1em;
     background-color: #4CAF50;
     color: white;
-    padding: 10px;
     border: none;
-    border-radius: 4px;
     cursor: pointer;
-    width: 100%;
-    margin-top: 10px;
-    font-size: 16px;
-}
-
-button:hover {
-    background-color: #45a049;
-}
-
-.result {
-    background-color: #f9f9f9;
-    padding: 10px;
-    margin-top: 10px;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    max-height: 200px;
-    overflow-y: auto;
-}
-
-.result p {
-    margin: 5px 0;
 }

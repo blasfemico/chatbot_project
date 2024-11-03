@@ -3,36 +3,84 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestión de Pedidos y Productos</title>
+    <title>Administración del Chatbot</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="container">
-        <h1>Gestión de Pedidos y Productos</h1>
+    <header>
+        <h1>Panel de Administración</h1>
+    </header>
+    <nav>
+        <ul>
+            <li><a href="#ciudades">Ciudades y Productos</a></li>
+            <li><a href="#chatbot">Prueba del Chatbot</a></li>
+            <li><a href="#facebook">Configuración de Facebook</a></li>
+            <li><a href="#pdfs">Gestión de PDFs</a></li>
+            <li><a href="#ordenes">Registro de Órdenes</a></li>
+        </ul>
+    </nav>
+    <main>
+        <!-- Sección de Ciudades y Productos -->
+        <section id="ciudades">
+            <h2>Ciudades y Productos</h2>
+            <div id="city-list">
+                <!-- Lista de ciudades y productos se cargará dinámicamente -->
+            </div>
+            <button id="add-city">+ Agregar Ciudad</button>
+        </section>
 
-        <!-- Formulario para obtener un pedido por ID -->
-        <div class="form-section">
-            <h2>Obtener Pedido por ID</h2>
-            <input type="number" id="orderIdInput" placeholder="Ingrese ID del pedido">
-            <button onclick="getOrderById()">Buscar Pedido</button>
-            <div id="orderByIdResult" class="result"></div>
-        </div>
+        <!-- Sección de Prueba del Chatbot -->
+        <section id="chatbot">
+            <h2>Prueba del Chatbot</h2>
+            <div id="chat-window">
+                <!-- Ventana de chat para pruebas -->
+            </div>
+            <input type="text" id="chat-input" placeholder="Escribe un mensaje...">
+            <button id="send-chat">Enviar</button>
+        </section>
 
-        <!-- Botón para obtener todos los pedidos -->
-        <div class="form-section">
-            <h2>Obtener Todos los Pedidos</h2>
-            <button onclick="getAllOrders()">Mostrar Pedidos</button>
-            <div id="allOrdersResult" class="result"></div>
-        </div>
+        <!-- Configuración de Facebook API -->
+        <section id="facebook">
+            <h2>Configuración de Facebook API</h2>
+            <input type="text" id="fb-token" placeholder="Introduce el Access Token">
+            <button id="save-token">Guardar Token</button>
+            <h3>Cuentas Activas</h3>
+            <div id="account-list">
+                <!-- Lista de cuentas de Facebook activas -->
+            </div>
+        </section>
 
-        <!-- Botón para obtener todos los productos -->
-        <div class="form-section">
-            <h2>Lista de Productos</h2>
-            <button onclick="getAllProducts()">Mostrar Productos</button>
-            <div id="allProductsResult" class="result"></div>
-        </div>
-    </div>
+        <!-- Gestión de PDFs -->
+        <section id="pdfs">
+            <h2>Gestión de PDFs</h2>
+            <input type="file" id="upload-pdf">
+            <button id="upload-button">Subir PDF</button>
+            <h3>PDFs Subidos</h3>
+            <div id="pdf-list">
+                <!-- Lista de PDFs subidos -->
+            </div>
+        </section>
 
+        <!-- Registro de Órdenes -->
+        <section id="ordenes">
+            <h2>Registro de Órdenes</h2>
+            <table id="order-table">
+                <thead>
+                    <tr>
+                        <th>Fecha</th>
+                        <th>Producto</th>
+                        <th>Cliente</th>
+                        <th>Teléfono</th>
+                        <th>Dirección</th>
+                        <th>Estado</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Filas de órdenes cargadas dinámicamente -->
+                </tbody>
+            </table>
+        </section>
+    </main>
     <script src="script.js"></script>
 </body>
 </html>

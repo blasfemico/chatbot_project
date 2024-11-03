@@ -1,127 +1,151 @@
-const apiUrl = 'http://localhost:8000';
+document.addEventListener('DOMContentLoaded', () => {
+    // Agregar Ciudad y Producto
+    document.getElementById('add-city').addEventListener('click', () => {
+        const cityName = prompt("Ingrese el nombre de la nueva ciudad:");
+        if (cityName) {
+            // Enviar solicitud al backend para agregar la ciudad
+            fetch('/api/cities/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: cityName })
+            })
+            .then(response => response.json())
+            .then(data => {
+                // Actualizar lista de ciudades
+                loadCities();
+            })
+            .catch(error => console.error("Error al agregar ciudad:", error));
+        }
+    });
 
-// Función para conectar con Facebook Messenger
-async function connectFacebook() {
-    const apiKey = document.getElementById('facebookApiKeyInput').value;
-    if (!apiKey) {
-        alert('Por favor, ingrese un API Key válido.');
-        return;
+    // Cargar lista de ciudades y productos
+    function loadCities() {
+        fetch('/api/cities/')
+        .then(response => response.json())
+        .then(cities => {
+            const cityList = document.getElementById('city-list');
+            cityList.innerHTML = '';
+            cities.forEach(city => {
+                const cityDiv = document.createElement('div');
+                cityDiv.classList.add('city');
+                cityDiv.innerHTML = `
+                    <h3>${city.name} <button onclick="addProduct(${city.id})">+</button></h3>
+                    <div id="products-${city.id}" class="product-list"></div>
+                `;
+                cityList.appendChild(cityDiv);
+                loadProducts(city.id);
+            });
+        })
+        .catch(error => console.error("Error al cargar ciudades:", error));
     }
 
-    try {
-        const response = await fetch(`${apiUrl}/facebook/connect/`, {
+    function addProduct(cityId) {
+        const productName = prompt("Ingrese el nombre del producto:");
+        const productPrice = prompt("Ingrese el precio del producto:");
+        if (productName && productPrice) {
+            fetch(`/api/cities/${cityId}/products/`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: productName, price: parseFloat(productPrice) })
+            })
+            .then(() => loadProducts(cityId))
+            .catch(error => console.error("Error al agregar producto:", error));
+        }
+    }
+
+    function loadProducts(cityId) {
+        fetch(`/api/cities/${cityId}/products/`)
+        .then(response => response.json())
+        .then(products => {
+            const productList = document.getElementById(`products-${cityId}`);
+            productList.innerHTML = '';
+            products.forEach(product => {
+                const productDiv = document.createElement('div');
+                productDiv.textContent = `${product.name} - $${product.price}`;
+                productList.appendChild(productDiv);
+            });
+        });
+    }
+
+    // Prueba del Chatbot
+    document.getElementById('send-chat').addEventListener('click', () => {
+        const message = document.getElementById('chat-input').value;
+        fetch('/api/chatbot/', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ api_key: apiKey })
+            body: JSON.stringify({ message })
+        })
+        .then(response => response.json())
+        .then(data => {
+            const chatWindow = document.getElementById('chat-window');
+            chatWindow.innerHTML += `<p><strong>Bot:</strong> ${data.response}</p>`;
+            document.getElementById('chat-input').value = '';
         });
-        const result = await response.json();
-        document.getElementById('facebookConnectionStatus').innerText = result.status || result.detail;
-    } catch (error) {
-        console.error('Error al conectar con Facebook:', error);
-    }
-}
+    });
 
-// Función para subir un PDF
-async function uploadPDF() {
-    const fileInput = document.getElementById('pdfFileInput');
-    const file = fileInput.files[0];
-    if (!file) {
-        alert('Por favor, seleccione un archivo PDF.');
-        return;
-    }
+    // Guardar el Access Token de Facebook
+    document.getElementById('save-token').addEventListener('click', () => {
+        const token = document.getElementById('fb-token').value;
+        fetch('/api/facebook/token/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token })
+        })
+        .then(() => alert("Token guardado correctamente"))
+        .catch(error => console.error("Error al guardar token:", error));
+    });
 
-    const formData = new FormData();
-    formData.append('file', file);
-
-    try {
-        const response = await fetch(`${apiUrl}/pdf/upload/`, {
+    // Subir PDF
+    document.getElementById('upload-button').addEventListener('click', () => {
+        const fileInput = document.getElementById('upload-pdf');
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        fetch('/api/pdfs/', {
             method: 'POST',
             body: formData
+        })
+        .then(() => loadPDFs())
+        .catch(error => console.error("Error al subir PDF:", error));
+    });
+
+    function loadPDFs() {
+        fetch('/api/pdfs/')
+        .then(response => response.json())
+        .then(pdfs => {
+            const pdfList = document.getElementById('pdf-list');
+            pdfList.innerHTML = '';
+            pdfs.forEach(pdf => {
+                const pdfDiv = document.createElement('div');
+                pdfDiv.textContent = pdf.name;
+                pdfList.appendChild(pdfDiv);
+            });
         });
-        const result = await response.json();
-        document.getElementById('pdfUploadStatus').innerText = result.message || result.detail;
-    } catch (error) {
-        console.error('Error al subir el PDF:', error);
-    }
-}
-
-// Función para hacer preguntas al chatbot
-async function askChatbot() {
-    const question = document.getElementById('chatbotQuestionInput').value;
-    if (!question) {
-        alert('Por favor, ingrese una pregunta.');
-        return;
     }
 
-    try {
-        const response = await fetch(`${apiUrl}/chatbot/ask/?question=${encodeURIComponent(question)}`);
-        const result = await response.json();
-        document.getElementById('chatbotAnswer').innerText = result.answer;
-    } catch (error) {
-        console.error('Error al hacer la pregunta al chatbot:', error);
-    }
-}
-
-// Función para obtener un pedido por ID
-async function getOrderById() {
-    const orderId = document.getElementById('orderIdInput').value;
-    if (!orderId) {
-        alert('Por favor, ingrese un ID válido.');
-        return;
-    }
-
-    try {
-        const response = await fetch(`${apiUrl}/orders/${orderId}`);
-        const order = await response.json();
-        document.getElementById('orderByIdResult').innerHTML = `
-            <p><strong>Pedido ID:</strong> ${order.id}</p>
-            <p><strong>Teléfono:</strong> ${order.phone}</p>
-            <p><strong>Email:</strong> ${order.email}</p>
-            <p><strong>Dirección:</strong> ${order.address}</p>
-        `;
-    } catch (error) {
-        console.error('Error al obtener el pedido:', error);
-    }
-}
-
-// Función para obtener todos los pedidos
-async function getAllOrders() {
-    try {
-        const response = await fetch(`${apiUrl}/orders/`);
-        const orders = await response.json();
-        let output = '';
-        orders.forEach(order => {
-            output += `
-                <p><strong>Pedido ID:</strong> ${order.id}</p>
-                <p><strong>Teléfono:</strong> ${order.phone}</p>
-                <p><strong>Email:</strong> ${order.email}</p>
-                <p><strong>Dirección:</strong> ${order.address}</p>
-                <hr>
-            `;
+    // Cargar datos de órdenes
+    function loadOrders() {
+        fetch('/api/orders/')
+        .then(response => response.json())
+        .then(orders => {
+            const orderTable = document.getElementById('order-table').querySelector('tbody');
+            orderTable.innerHTML = '';
+            orders.forEach(order => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${order.date}</td>
+                    <td>${order.product_name}</td>
+                    <td>${order.customer_name}</td>
+                    <td>${order.phone}</td>
+                    <td>${order.address}</td>
+                    <td>${order.status}</td>
+                `;
+                orderTable.appendChild(row);
+            });
         });
-        document.getElementById('allOrdersResult').innerHTML = output || '<p>No hay pedidos disponibles.</p>';
-    } catch (error) {
-        console.error('Error al obtener los pedidos:', error);
     }
-}
 
-// Función para obtener todos los productos
-async function getAllProducts() {
-    try {
-        const response = await fetch(`${apiUrl}/products/`);
-        const products = await response.json();
-        let output = '';
-        products.forEach(product => {
-            output += `
-                <p><strong>Producto ID:</strong> ${product.id}</p>
-                <p><strong>Nombre:</strong> ${product.name}</p>
-                <p><strong>Precio:</strong> $${product.price}</p>
-                <p><strong>Descripción:</strong> ${product.description || 'N/A'}</p>
-                <hr>
-            `;
-        });
-        document.getElementById('allProductsResult').innerHTML = output || '<p>No hay productos disponibles.</p>';
-    } catch (error) {
-        console.error('Error al obtener los productos:', error);
-    }
-}
+    // Inicializar cargas
+    loadCities();
+    loadPDFs();
+    loadOrders();
+});

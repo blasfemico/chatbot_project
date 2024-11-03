@@ -1,4 +1,4 @@
-# app/crud.py
+
 from sqlalchemy.orm import Session
 from app import models, schemas
 
@@ -9,7 +9,7 @@ from app.models import FAQ, PDF
 from typing import List, Dict
 
 
-# Clase CRUD para FAQs
+
 class CRUDFaq:
     def create_faq(self, db: Session, faq: schemas.FAQCreate):
         db_faq = models.FAQ(question=faq.question, answer=faq.answer)
@@ -46,61 +46,27 @@ class CRUDFaq:
 
 
 class CRUDOrder:
-    def create_order(self, db: Session, order: schemas.OrderCreate):
-        db_order = models.Order(phone=order.phone, email=order.email, address=order.address)
+    def create_order(self, db: Session, order_data: schemas.OrderCreate):
+        db_order = models.Order(
+            phone=order_data.phone,
+            address=order_data.address,
+            customer_name=order_data.customer_name,
+            product_id=order_data.product_id,
+            total_price=order_data.total_price,
+            status="pending"
+        )
         db.add(db_order)
         db.commit()
         db.refresh(db_order)
         return db_order
 
-    def get_order_by_id(self, db: Session, order_id: int):
-        return db.query(models.Order).filter(models.Order.id == order_id).first()
-
-    def get_all_orders(self, db: Session, skip: int = 0, limit: int = 10):
-        return db.query(models.Order).offset(skip).limit(limit).all()
-
-    
-
-# Clase CRUD para Products
-class CRUDProduct:
-    def create_product(self, db: Session, product: schemas.ProductCreate):
-        db_product = models.Product(
-            name=product.name,
-            price=product.price,
-            description=product.description,
-            city_id=product.city_id
-        )
-        db.add(db_product)
-        db.commit()
-        db.refresh(db_product)
-        return db_product
-
-    def get_product_by_id(self, db: Session, product_id: int):
-        return db.query(models.Product).filter(models.Product.id == product_id).first()
-
-    def get_all_products(self, db: Session, skip: int = 0, limit: int = 10):
-        return db.query(models.Product).offset(skip).limit(limit).all()
-
-    def update_product(self, db: Session, product_id: int, product: schemas.ProductCreate):
-        db_product = self.get_product_by_id(db, product_id)
-        if db_product:
-            db_product.name = product.name
-            db_product.price = product.price
-            db_product.description = product.description
-            db_product.city_id = product.city_id
-            db.commit()
-            db.refresh(db_product)
-        return db_product
-
-    def delete_product(self, db: Session, product_id: int):
-        db_product = self.get_product_by_id(db, product_id)
-        if db_product:
-            db.delete(db_product)
-            db.commit()
-        return db_product
-
-
-# Clase CRUD para Cities
+    def get_product_from_message(self, db: Session, message: str):
+        # Buscamos un producto que coincida en el mensaje (esto puede mejorarse usando NLP o regex)
+        products = db.query(models.Product).all()
+        for product in products:
+            if product.name.lower() in message.lower():
+                return product
+        return None
 class CRUDCity:
     def create_city(self, db: Session, city: schemas.CityCreate):
         db_city = models.City(name=city.name)
@@ -115,6 +81,18 @@ class CRUDCity:
     def get_all_cities(self, db: Session, skip: int = 0, limit: int = 10):
         return db.query(models.City).offset(skip).limit(limit).all()
 
+
+class CRUDProduct:
+    def create_product(self, db: Session, product: schemas.ProductCreate, city_id: int):
+        db_product = models.Product(name=product.name, price=product.price, city_id=city_id)
+        db.add(db_product)
+        db.commit()
+        db.refresh(db_product)
+        return db_product
+
+    def get_products_by_city(self, db: Session, city_id: int, skip: int = 0, limit: int = 10):
+        return db.query(models.Product).filter(models.Product.city_id == city_id).offset(skip).limit(limit).all()
+    
 class CRUDMessage:
     def create_message(self, db: Session, user_id: int, content: str):
         message = Message(user_id=user_id, content=content)
@@ -126,7 +104,6 @@ class CRUDMessage:
     def get_messages(self, db: Session, skip: int = 0, limit: int = 10):
         return db.query(Message).order_by(Message.timestamp.desc()).offset(skip).limit(limit).all()
 
-# CRUD para cuentas de Facebook
 class CRUDFacebookAccount:
     def add_facebook_account(self, db: Session, account_name: str, api_key: str):
         account = FacebookAccount(account_name=account_name, api_key=api_key)

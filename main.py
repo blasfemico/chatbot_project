@@ -2,7 +2,7 @@
 from fastapi import FastAPI
 from app.database import Base, engine
 from app.config import settings
-from app.routes import chatbot, orders, websockets
+from app.routes import chatbot, orders, websockets, cities_products
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title=settings.PROJECT_NAME)
@@ -22,7 +22,7 @@ Base.metadata.create_all(bind=engine)
 app.include_router(chatbot.router, prefix="/chatbot", tags=["Chatbot"])
 app.include_router(orders.router, prefix="/orders", tags=["Orders"])
 app.include_router(websockets.router, tags=["WebSocket"])
-
+app.include_router(cities_products.router, tags=["cities"])
 
 @app.get("/")
 async def root():

@@ -16,9 +16,9 @@ from app.models import FAQ
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 router = APIRouter()
 
-# Ajuste del prompt para evitar introducciones y recordatorios
+
 assistant_prompt = (
-    "Responde exclusivamente con la información proporcionada en la base de datos de manera directa, "
+    "Responde exclusivamente con la información proporcionada en la base de datos de manera directa pero humana, "
     "sin añadir aclaraciones, recordatorios o advertencias adicionales. Organiza la información de forma clara y profesional."
 )
 
@@ -92,34 +92,33 @@ async def upload_pdf(file: UploadFile = File(...), db: Session = Depends(get_db)
 async def ask_question(question: str, db: Session = Depends(get_db)):
     faq_crud = CRUDFaq()
 
-    # Detectar términos específicos como "info", "información", "lista de medicamentos" y recopilar información de la base de datos
+   
     if question.lower() in ["info", "información", "lista de medicamentos"]:
         medications_info = collect_database_info(faq_crud, db)
         if medications_info:
             return {"answer": medications_info}
 
-    # Buscar respuesta exacta en la base de datos
+  
     exact_answer = faq_crud.get_response(db=db, question=question)
     if exact_answer != "Lo siento, no tengo una respuesta para esa pregunta.":
         return {"answer": exact_answer}
 
-    # Buscar respuesta aproximada en la base de datos
+   
     approximate_answer = get_approximate_response(db, question)
     if approximate_answer != "Lo siento, no tengo una respuesta para esa pregunta.":
         return {"answer": approximate_answer}
 
-    # Si no se encuentra una respuesta en la base de datos, se consulta a OpenAI con contexto
+    
     answer = get_openai_response(question, faq_crud, db)
     return {"answer": answer}
 
 
 def collect_database_info(faq_crud, db):
-    # Recopilar y estructurar respuestas de la base de datos para términos generales
     faqs = faq_crud.get_all_faqs(db=db)
     medications = [f"Pregunta: {faq.question}\nRespuesta: {faq.answer}" for faq in faqs if "medicamento" in faq.question.lower() or "precio" in faq.question.lower()]
 
     if medications:
-        # Pide a OpenAI que organice las respuestas recolectadas sin introducción o recordatorios
+    
         prompt = f"{assistant_prompt}\n\nOrganiza la siguiente información sobre medicamentos y precios:\n\n{''.join(medications)}"
         response = client.chat.completions.create(
             model="gpt-4",
