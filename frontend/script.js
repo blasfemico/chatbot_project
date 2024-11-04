@@ -3,16 +3,14 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('add-city').addEventListener('click', () => {
         const cityName = prompt("Ingrese el nombre de la nueva ciudad:");
         if (cityName) {
-            // Enviar solicitud al backend para agregar la ciudad
-            fetch('/api/cities/', {
+            fetch('/cities/', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name: cityName })
             })
             .then(response => response.json())
             .then(data => {
-                // Actualizar lista de ciudades
-                loadCities();
+                loadCities(); // Actualizar lista de ciudades
             })
             .catch(error => console.error("Error al agregar ciudad:", error));
         }
@@ -20,7 +18,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Cargar lista de ciudades y productos
     function loadCities() {
-        fetch('/api/cities/')
+        fetch('/cities/')
         .then(response => response.json())
         .then(cities => {
             const cityList = document.getElementById('city-list');
@@ -43,7 +41,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const productName = prompt("Ingrese el nombre del producto:");
         const productPrice = prompt("Ingrese el precio del producto:");
         if (productName && productPrice) {
-            fetch(`/api/cities/${cityId}/products/`, {
+            fetch(`/cities/${cityId}/products/`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name: productName, price: parseFloat(productPrice) })
@@ -54,7 +52,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function loadProducts(cityId) {
-        fetch(`/api/cities/${cityId}/products/`)
+        fetch(`/cities/${cityId}/products/`)
         .then(response => response.json())
         .then(products => {
             const productList = document.getElementById(`products-${cityId}`);
@@ -70,7 +68,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Prueba del Chatbot
     document.getElementById('send-chat').addEventListener('click', () => {
         const message = document.getElementById('chat-input').value;
-        fetch('/api/chatbot/ask/', {
+        fetch('/chatbot/ask/', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ message })
@@ -80,13 +78,14 @@ document.addEventListener('DOMContentLoaded', () => {
             const chatWindow = document.getElementById('chat-window');
             chatWindow.innerHTML += `<p><strong>Bot:</strong> ${data.response}</p>`;
             document.getElementById('chat-input').value = '';
-        });
+        })
+        .catch(error => console.error("Error en la comunicación con el chatbot:", error));
     });
 
     // Guardar el Access Token de Facebook
     document.getElementById('save-token').addEventListener('click', () => {
         const token = document.getElementById('fb-token').value;
-        fetch('/api/facebook/token/', {
+        fetch('/facebook/token/', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ token })
@@ -100,7 +99,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const fileInput = document.getElementById('upload-pdf');
         const formData = new FormData();
         formData.append('file', fileInput.files[0]);
-        fetch('/api/pdf/upload/', {
+        fetch('/pdfs/upload/', {
             method: 'POST',
             body: formData
         })
@@ -109,7 +108,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     function loadPDFs() {
-        fetch('/api/pdfs/')
+        fetch('/pdfs/')
         .then(response => response.json())
         .then(pdfs => {
             const pdfList = document.getElementById('pdf-list');
@@ -125,7 +124,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Cargar datos de órdenes
     function loadOrders() {
-        fetch('/api/orders/')
+        fetch('/orders/')
         .then(response => response.json())
         .then(orders => {
             const orderTable = document.getElementById('order-table').querySelector('tbody');
@@ -142,7 +141,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 `;
                 orderTable.appendChild(row);
             });
-        });
+        })
+        .catch(error => console.error("Error al cargar órdenes:", error));
     }
 
     // Inicializar cargas
