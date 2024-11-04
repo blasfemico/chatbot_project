@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
+from fastapi import APIRouter, HTTPException, UploadFile, File, Depends, Request
 from sqlalchemy.orm import Session
 from app.config import settings
 from app.crud import CRUDFaq, CRUDMessage, CRUDFacebookAccount
@@ -15,6 +15,8 @@ from app.models import FAQ
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 router = APIRouter()
+VERIFY_TOKEN = "chatbot_project"
+
 
 # Ajuste del prompt para evitar introducciones y recordatorios
 assistant_prompt = (
@@ -146,3 +148,53 @@ def get_openai_response(question: str, faq_crud: CRUDFaq, db: Session):
     return response.choices[0].message.content.strip()
 
 
+@router.post("/facebook/webhook/", response_model=None)
+async def facebook_webhook(request: Request):
+    data = await request.json()
+    
+    # Verificación de webhook
+    if 'hub.mode' in data and data['hub.mode'] == 'subscribe':
+        return data.get('hub.challenge')
+    
+    # Procesar mensajes
+    if 'entry' in data:
+        for entry in data['entry']:
+            for message_event in entry.get('messaging', []):
+                if 'message' in message_event:
+                    sender_id = message_event['sender']['id']
+                    message_text = message_event['message'].get('text')
+                    if message_text:
+                        # Responder al usuario usando OpenAI o mensajes predefinidos
+                        response_text = get_openai_response(message_text)
+                        send_message(sender_id, response_text)
+    
+    return {"status": "ok"}
+
+def send_message(recipient_id, text):
+    url = f"{settings.FACEBOOK_GRAPH_API_URL}/me/messages"
+    headers = {
+        "Content-Type": "application/json"
+    }
+    data = {
+        "recipient": {"id": recipient_id},
+        "message": {"text": text},
+        "access_token": settings.FACEBOOK_PAGE_ACCESS_TOKEN
+    }
+    response = requests.post(url, headers=headers, json=data)
+    
+    if response.status_code != 200:
+        raise HTTPException(status_code=response.status_code, detail="Error al enviar el mensaje.")
+
+
+@router.get("/facebook/webhook/")
+async def verify_webhook(request: Request):
+    # Facebook envía 'hub.mode', 'hub.challenge' y 'hub.verify_token' en la solicitud de verificación
+    mode = request.query_params.get("hub.mode")
+    token = request.query_params.get("hub.verify_token")
+    challenge = request.query_params.get("hub.challenge")
+
+    # Compara el token enviado por Facebook con tu VERIFY_TOKEN
+    if mode == "subscribe" and token == VERIFY_TOKEN:
+        return int(challenge)  # Devuelve el challenge para verificar el webhook
+    else:
+        raise HTTPException(status_code=403, detail="Token de verificación inválido")
