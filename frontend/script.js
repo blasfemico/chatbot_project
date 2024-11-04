@@ -35,35 +35,37 @@ async function addProduct() {
     alert("Error al agregar producto.");
   }
 }
-
+// Función para enviar mensajes al chatbot
 async function sendMessage() {
   const message = document.getElementById("chatMessage").value;
-  const response = await fetch(`${BASE_URL}/chatbot/send`, {
+  const response = await fetch(`${BASE_URL}/chatbot/ask/`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message })
+    body: JSON.stringify({ question: message })
   });
   const data = await response.json();
-  document.getElementById("chatResponse").textContent = data.response;
+  document.getElementById("chatResponse").textContent = data.answer;
 }
 
+// Función para subir PDF
 async function uploadPDF() {
   const pdfFile = document.getElementById("pdfUpload").files[0];
   const formData = new FormData();
-  formData.append("pdf", pdfFile);
+  formData.append("file", pdfFile);
 
-  const response = await fetch(`${BASE_URL}/pdf/upload`, {
+  const response = await fetch(`${BASE_URL}/pdf/upload/`, {
     method: "POST",
     body: formData
   });
 
   if (response.ok) {
     const data = await response.json();
-    document.getElementById("pdfStatus").textContent = `PDF subido: ${data.pdf_name}`;
+    document.getElementById("pdfStatus").textContent = data.message;
   } else {
     alert("Error al subir el PDF.");
   }
 }
+
 
 async function addFacebookAccount() {
   const name = document.getElementById("facebookName").value;

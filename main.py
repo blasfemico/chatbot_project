@@ -19,8 +19,8 @@ Base.metadata.create_all(bind=engine)
 
 
 # Incluir las rutas con prefijos y etiquetas para organización
-app.include_router(chatbot.router, prefix="/chatbot", tags=["Chatbot"])
-app.include_router(orders.router, prefix="/orders", tags=["Orders"])
+app.include_router(chatbot.router, tags=["Chatbot"])
+app.include_router(orders.router, tags=["Orders"])
 app.include_router(websockets.router, tags=["WebSocket"])
 app.include_router(cities_products.router, tags=["cities_products"])
 
