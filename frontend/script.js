@@ -70,7 +70,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Prueba del Chatbot
     document.getElementById('send-chat').addEventListener('click', () => {
         const message = document.getElementById('chat-input').value;
-        fetch('/api/chatbot/', {
+        fetch('/api/chatbot/ask/', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ message })
@@ -100,7 +100,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const fileInput = document.getElementById('upload-pdf');
         const formData = new FormData();
         formData.append('file', fileInput.files[0]);
-        fetch('/api/pdfs/', {
+        fetch('/api/pdf/upload/', {
             method: 'POST',
             body: formData
         })
@@ -119,7 +119,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 pdfDiv.textContent = pdf.name;
                 pdfList.appendChild(pdfDiv);
             });
-        });
+        })
+        .catch(error => console.error("Error al cargar PDFs:", error));
     }
 
     // Cargar datos de órdenes
