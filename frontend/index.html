@@ -1,86 +1,56 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Administración del Chatbot</title>
-    <link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin de Chatbot</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <header>
-        <h1>Panel de Administración</h1>
-    </header>
-    <nav>
-        <ul>
-            <li><a href="#ciudades">Ciudades y Productos</a></li>
-            <li><a href="#chatbot">Prueba del Chatbot</a></li>
-            <li><a href="#facebook">Configuración de Facebook</a></li>
-            <li><a href="#pdfs">Gestión de PDFs</a></li>
-            <li><a href="#ordenes">Registro de Órdenes</a></li>
-        </ul>
-    </nav>
-    <main>
-        <!-- Sección de Ciudades y Productos -->
-        <section id="ciudades">
-            <h2>Ciudades y Productos</h2>
-            <div id="city-list">
-                <!-- Lista de ciudades y productos se cargará dinámicamente -->
-            </div>
-            <button id="add-city">+ Agregar Ciudad</button>
-        </section>
+  <div class="container">
+    <h1>Panel de Administración del Chatbot</h1>
 
-        <!-- Sección de Prueba del Chatbot -->
-        <section id="chatbot">
-            <h2>Prueba del Chatbot</h2>
-            <div id="chat-window">
-                <!-- Ventana de chat para pruebas -->
-            </div>
-            <input type="text" id="chat-input" placeholder="Escribe un mensaje...">
-            <button id="send-chat">Enviar</button>
-        </section>
+    <!-- Sección para selección de ciudades y agregar productos -->
+    <div class="section">
+      <h2>Gestión de Ciudades y Productos</h2>
+      <label for="citySelect">Seleccione una Ciudad:</label>
+      <select id="citySelect" onchange="loadProducts()">
+        <!-- Opciones cargadas dinámicamente -->
+      </select>
+      <div class="product-form">
+        <input type="text" id="productName" placeholder="Nombre del Producto">
+        <input type="number" id="productPrice" placeholder="Precio del Producto">
+        <button onclick="addProduct()">Agregar Producto</button>
+      </div>
+    </div>
 
-        <!-- Configuración de Facebook API -->
-        <section id="facebook">
-            <h2>Configuración de Facebook API</h2>
-            <input type="text" id="fb-token" placeholder="Introduce el Access Token">
-            <button id="save-token">Guardar Token</button>
-            <h3>Cuentas Activas</h3>
-            <div id="account-list">
-                <!-- Lista de cuentas de Facebook activas -->
-            </div>
-        </section>
+    <!-- Sección para enviar mensajes al chatbot -->
+    <div class="section">
+      <h2>Enviar Mensaje al Chatbot</h2>
+      <input type="text" id="chatMessage" placeholder="Escribe un mensaje">
+      <button onclick="sendMessage()">Enviar</button>
+      <div id="chatResponse"></div>
+    </div>
 
-        <!-- Gestión de PDFs -->
-        <section id="pdfs">
-            <h2>Gestión de PDFs</h2>
-            <input type="file" id="upload-pdf">
-            <button id="upload-button">Subir PDF</button>
-            <h3>PDFs Subidos</h3>
-            <div id="pdf-list">
-                <!-- Lista de PDFs subidos -->
-            </div>
-        </section>
+    <!-- Sección para subir PDF y mostrar nombre del último subido -->
+    <div class="section">
+      <h2>Subir PDF</h2>
+      <input type="file" id="pdfUpload" accept=".pdf">
+      <button onclick="uploadPDF()">Subir PDF</button>
+      <div id="pdfStatus"></div>
+    </div>
 
-        <!-- Registro de Órdenes -->
-        <section id="ordenes">
-            <h2>Registro de Órdenes</h2>
-            <table id="order-table">
-                <thead>
-                    <tr>
-                        <th>Fecha</th>
-                        <th>Producto</th>
-                        <th>Cliente</th>
-                        <th>Teléfono</th>
-                        <th>Dirección</th>
-                        <th>Estado</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <!-- Filas de órdenes cargadas dinámicamente -->
-                </tbody>
-            </table>
-        </section>
-    </main>
-    <script src="script.js"></script>
+    <!-- Sección para añadir y listar cuentas de Facebook -->
+    <div class="section">
+      <h2>Conectar Cuentas de Facebook</h2>
+      <input type="text" id="facebookName" placeholder="Nombre de la Cuenta">
+      <input type="text" id="facebookApiKey" placeholder="API Key">
+      <button onclick="addFacebookAccount()">Conectar Cuenta</button>
+      <h3>Cuentas Conectadas</h3>
+      <ul id="facebookAccountsList"></ul>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
 </body>
 </html>

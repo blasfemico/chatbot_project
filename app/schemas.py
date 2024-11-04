@@ -1,8 +1,8 @@
-
+# app/schemas.py
 from pydantic import BaseModel
 from typing import Optional, List
 
-
+# Esquema para la tabla FAQ
 class FAQBase(BaseModel):
     question: str
     answer: str
@@ -16,18 +16,14 @@ class FAQ(FAQBase):
     class Config:
         from_attributes = True
 
-
+# Esquema para la tabla Order
 class OrderBase(BaseModel):
     phone: str
     email: str
     address: str
 
-class OrderCreate(BaseModel):
-    phone: str
-    address: str = None
-    customer_name: str = None
-    product_id: int
-    total_price: float
+class OrderCreate(OrderBase):
+    pass
 
 class Order(OrderBase):
     id: int
@@ -35,7 +31,7 @@ class Order(OrderBase):
     class Config:
         from_attributes = True
 
-
+# Esquema para la tabla Product
 class ProductBase(BaseModel):
     name: str
     price: float
@@ -47,27 +43,20 @@ class ProductCreate(ProductBase):
 
 class Product(ProductBase):
     id: int
-    city: Optional["City"] = None  
 
     class Config:
         from_attributes = True
 
-
+# Esquema para la tabla City
 class CityBase(BaseModel):
     name: str
 
 class CityCreate(CityBase):
     pass
-
+# Simplificado para evitar referencia cíclica en respuestas
 class City(CityBase):
     id: int
-    products: List[Product] = []  
+    products: List[Product] = []  # Lista simple de productos sin referencias a 'City' dentro de 'Product'
 
     class Config:
         from_attributes = True
-
-class MessageCreate(BaseModel):
-    phone: str
-    address: str = None
-    content: str  # El mensaje del cliente en el chat
-    customer_name: str = None

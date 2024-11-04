@@ -1,10 +1,10 @@
-
+# app/routes/websockets.py
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from typing import List
 
 router = APIRouter()
 
-
+# Administrador de conexiones WebSocket
 class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
@@ -25,7 +25,7 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-
+# Endpoint de WebSocket para la comunicación en tiempo real
 @router.websocket("/ws/chat")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)

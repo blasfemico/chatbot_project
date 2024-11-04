@@ -1,152 +1,96 @@
-document.addEventListener('DOMContentLoaded', () => {
-    // Agregar Ciudad y Producto
-    document.getElementById('add-city').addEventListener('click', () => {
-        const cityName = prompt("Ingrese el nombre de la nueva ciudad:");
-        if (cityName) {
-            fetch('/cities/', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: cityName })
-            })
-            .then(response => response.json())
-            .then(data => {
-                loadCities(); // Actualizar lista de ciudades
-            })
-            .catch(error => console.error("Error al agregar ciudad:", error));
-        }
-    });
+// URL base del backend
+const BASE_URL = "http://localhost:8000";
 
-    // Cargar lista de ciudades y productos
-    function loadCities() {
-        fetch('/cities/')
-        .then(response => response.json())
-        .then(cities => {
-            const cityList = document.getElementById('city-list');
-            cityList.innerHTML = '';
-            cities.forEach(city => {
-                const cityDiv = document.createElement('div');
-                cityDiv.classList.add('city');
-                cityDiv.innerHTML = `
-                    <h3>${city.name} <button onclick="addProduct(${city.id})">+</button></h3>
-                    <div id="products-${city.id}" class="product-list"></div>
-                `;
-                cityList.appendChild(cityDiv);
-                loadProducts(city.id);
-            });
-        })
-        .catch(error => console.error("Error al cargar ciudades:", error));
-    }
+// Cargar ciudades al iniciar
+document.addEventListener("DOMContentLoaded", loadCities);
 
-    function addProduct(cityId) {
-        const productName = prompt("Ingrese el nombre del producto:");
-        const productPrice = prompt("Ingrese el precio del producto:");
-        if (productName && productPrice) {
-            fetch(`/cities/${cityId}/products/`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: productName, price: parseFloat(productPrice) })
-            })
-            .then(() => loadProducts(cityId))
-            .catch(error => console.error("Error al agregar producto:", error));
-        }
-    }
+async function loadCities() {
+  const response = await fetch(`${BASE_URL}/cities/`);
+  const cities = await response.json();
+  const citySelect = document.getElementById("citySelect");
+  citySelect.innerHTML = "";
+  cities.forEach(city => {
+    const option = document.createElement("option");
+    option.value = city.id;
+    option.text = city.name;
+    citySelect.add(option);
+  });
+}
 
-    function loadProducts(cityId) {
-        fetch(`/cities/${cityId}/products/`)
-        .then(response => response.json())
-        .then(products => {
-            const productList = document.getElementById(`products-${cityId}`);
-            productList.innerHTML = '';
-            products.forEach(product => {
-                const productDiv = document.createElement('div');
-                productDiv.textContent = `${product.name} - $${product.price}`;
-                productList.appendChild(productDiv);
-            });
-        });
-    }
+async function addProduct() {
+  const cityId = document.getElementById("citySelect").value;
+  const name = document.getElementById("productName").value;
+  const price = parseFloat(document.getElementById("productPrice").value);
 
-    // Prueba del Chatbot
-    document.getElementById('send-chat').addEventListener('click', () => {
-        const message = document.getElementById('chat-input').value;
-        fetch('/chatbot/ask/', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message })
-        })
-        .then(response => response.json())
-        .then(data => {
-            const chatWindow = document.getElementById('chat-window');
-            chatWindow.innerHTML += `<p><strong>Bot:</strong> ${data.response}</p>`;
-            document.getElementById('chat-input').value = '';
-        })
-        .catch(error => console.error("Error en la comunicación con el chatbot:", error));
-    });
+  const response = await fetch(`${BASE_URL}/cities/${cityId}/products/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, price })
+  });
 
-    // Guardar el Access Token de Facebook
-    document.getElementById('save-token').addEventListener('click', () => {
-        const token = document.getElementById('fb-token').value;
-        fetch('/facebook/token/', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ token })
-        })
-        .then(() => alert("Token guardado correctamente"))
-        .catch(error => console.error("Error al guardar token:", error));
-    });
-
-    // Subir PDF
-    document.getElementById('upload-button').addEventListener('click', () => {
-        const fileInput = document.getElementById('upload-pdf');
-        const formData = new FormData();
-        formData.append('file', fileInput.files[0]);
-        fetch('/pdfs/upload/', {
-            method: 'POST',
-            body: formData
-        })
-        .then(() => loadPDFs())
-        .catch(error => console.error("Error al subir PDF:", error));
-    });
-
-    function loadPDFs() {
-        fetch('/pdfs/')
-        .then(response => response.json())
-        .then(pdfs => {
-            const pdfList = document.getElementById('pdf-list');
-            pdfList.innerHTML = '';
-            pdfs.forEach(pdf => {
-                const pdfDiv = document.createElement('div');
-                pdfDiv.textContent = pdf.name;
-                pdfList.appendChild(pdfDiv);
-            });
-        })
-        .catch(error => console.error("Error al cargar PDFs:", error));
-    }
-
-    // Cargar datos de órdenes
-    function loadOrders() {
-        fetch('/orders/')
-        .then(response => response.json())
-        .then(orders => {
-            const orderTable = document.getElementById('order-table').querySelector('tbody');
-            orderTable.innerHTML = '';
-            orders.forEach(order => {
-                const row = document.createElement('tr');
-                row.innerHTML = `
-                    <td>${order.date}</td>
-                    <td>${order.product_name}</td>
-                    <td>${order.customer_name}</td>
-                    <td>${order.phone}</td>
-                    <td>${order.address}</td>
-                    <td>${order.status}</td>
-                `;
-                orderTable.appendChild(row);
-            });
-        })
-        .catch(error => console.error("Error al cargar órdenes:", error));
-    }
-
-    // Inicializar cargas
+  if (response.ok) {
+    alert("Producto agregado!");
     loadCities();
-    loadPDFs();
-    loadOrders();
-});
+  } else {
+    alert("Error al agregar producto.");
+  }
+}
+
+async function sendMessage() {
+  const message = document.getElementById("chatMessage").value;
+  const response = await fetch(`${BASE_URL}/chatbot/send`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message })
+  });
+  const data = await response.json();
+  document.getElementById("chatResponse").textContent = data.response;
+}
+
+async function uploadPDF() {
+  const pdfFile = document.getElementById("pdfUpload").files[0];
+  const formData = new FormData();
+  formData.append("pdf", pdfFile);
+
+  const response = await fetch(`${BASE_URL}/pdf/upload`, {
+    method: "POST",
+    body: formData
+  });
+
+  if (response.ok) {
+    const data = await response.json();
+    document.getElementById("pdfStatus").textContent = `PDF subido: ${data.pdf_name}`;
+  } else {
+    alert("Error al subir el PDF.");
+  }
+}
+
+async function addFacebookAccount() {
+  const name = document.getElementById("facebookName").value;
+  const apiKey = document.getElementById("facebookApiKey").value;
+
+  const response = await fetch(`${BASE_URL}/facebook/accounts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ account_name: name, api_key: apiKey })
+  });
+
+  if (response.ok) {
+    alert("Cuenta de Facebook conectada!");
+    loadFacebookAccounts();
+  } else {
+    alert("Error al conectar cuenta de Facebook.");
+  }
+}
+
+async function loadFacebookAccounts() {
+  const response = await fetch(`${BASE_URL}/facebook/accounts`);
+  const accounts = await response.json();
+  const list = document.getElementById("facebookAccountsList");
+  list.innerHTML = "";
+  accounts.forEach(account => {
+    const listItem = document.createElement("li");
+    listItem.textContent = account.account_name;
+    list.appendChild(listItem);
+  });
+}
