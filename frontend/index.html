@@ -10,21 +10,27 @@
   <div class="container">
     <h1>Panel de Administración del Chatbot</h1>
 
-    <!-- Sección para selección de ciudades y agregar productos -->
     <div class="section">
-      <h2>Gestión de Ciudades y Productos</h2>
+      <h2>Gestión de Ciudades</h2>
+      <input type="text" id="newCityName" placeholder="Nombre de la Ciudad">
+      <button onclick="addCity()">Agregar Ciudad</button>
       <label for="citySelect">Seleccione una Ciudad:</label>
-      <select id="citySelect" onchange="loadProducts()">
+      <select id="citySelect">
         <!-- Opciones cargadas dinámicamente -->
       </select>
-      <div class="product-form">
-        <input type="text" id="productName" placeholder="Nombre del Producto">
-        <input type="number" id="productPrice" placeholder="Precio del Producto">
-        <button onclick="addProduct()">Agregar Producto</button>
-      </div>
+      <button onclick="deleteCity(document.getElementById('citySelect').value)">Eliminar Ciudad</button>
     </div>
 
-    <!-- Sección para enviar mensajes al chatbot -->
+    <div class="section">
+      <h2>Gestión de Productos</h2>
+      <input type="text" id="productName" placeholder="Nombre del Producto">
+      <input type="number" id="productPrice" placeholder="Precio del Producto">
+      <button onclick="addProduct()">Agregar Producto</button>
+      <ul id="productsList">
+        <!-- Lista de productos cargada dinámicamente -->
+      </ul>
+    </div>
+
     <div class="section">
       <h2>Enviar Mensaje al Chatbot</h2>
       <input type="text" id="chatMessage" placeholder="Escribe un mensaje">
@@ -32,7 +38,6 @@
       <div id="chatResponse"></div>
     </div>
 
-    <!-- Sección para subir PDF y mostrar nombre del último subido -->
     <div class="section">
       <h2>Subir PDF</h2>
       <input type="file" id="pdfUpload" accept=".pdf">
@@ -40,14 +45,11 @@
       <div id="pdfStatus"></div>
     </div>
 
-    <!-- Sección para añadir y listar cuentas de Facebook -->
     <div class="section">
       <h2>Conectar Cuentas de Facebook</h2>
       <input type="text" id="facebookName" placeholder="Nombre de la Cuenta">
       <input type="text" id="facebookApiKey" placeholder="API Key">
       <button onclick="addFacebookAccount()">Conectar Cuenta</button>
-      <h3>Cuentas Conectadas</h3>
-      <ul id="facebookAccountsList"></ul>
     </div>
   </div>
 

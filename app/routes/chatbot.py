@@ -97,17 +97,6 @@ async def ask_question(question: str, db: Session = Depends(get_db)):
         medications_info = collect_database_info(faq_crud, db)
         if medications_info:
             return {"answer": medications_info}
-
-    # Buscar respuesta exacta en la base de datos
-    exact_answer = faq_crud.get_response(db=db, question=question)
-    if exact_answer != "Lo siento, no tengo una respuesta para esa pregunta.":
-        return {"answer": exact_answer}
-
-    # Buscar respuesta aproximada en la base de datos
-    approximate_answer = get_approximate_response(db, question)
-    if approximate_answer != "Lo siento, no tengo una respuesta para esa pregunta.":
-        return {"answer": approximate_answer}
-
     # Si no se encuentra una respuesta en la base de datos, se consulta a OpenAI con contexto
     answer = get_openai_response(question, faq_crud, db)
     return {"answer": answer}
@@ -155,3 +144,5 @@ def get_openai_response(question: str, faq_crud: CRUDFaq, db: Session):
         ]
     )
     return response.choices[0].message.content.strip()
+
+
