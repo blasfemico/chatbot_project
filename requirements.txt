@@ -12,3 +12,4 @@ requests
 python-dotenv
 pydantic-settings
 openai
+python-docx

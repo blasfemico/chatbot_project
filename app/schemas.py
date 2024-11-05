@@ -55,7 +55,7 @@ class Producto(BaseModel):
     nombre: str
     # Eliminamos la relación directa con `cuentas` para evitar recursión
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 # Esquema para la relación entre cuentas y productos, incluyendo el precio específico
 class CuentaProducto(BaseModel):

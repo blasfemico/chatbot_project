@@ -6,11 +6,13 @@ from app.database import get_db
 from pydantic import BaseModel
 import requests
 import PyPDF2
-from openai import OpenAI
+import docx
 import json
 import os
 from app.models import Cuenta
 import re
+from openai import OpenAI
+from app import schemas
 
 # Configuración de OpenAI y router
 router = APIRouter()
@@ -19,7 +21,7 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # Prompt base para establecer el contexto de ChatGPT
 assistant_prompt = (
-    "Responde exclusivamente con la información proporcionada en la base de datos de manera directa, "
+    "Responde exclusivamente con la información proporcionada de manera directa, "
     "sin añadir aclaraciones, recordatorios o advertencias adicionales. Organiza la información de forma clara y profesional."
 )
 
@@ -27,7 +29,6 @@ class FacebookAccount(BaseModel):
     api_key: str
 
 def get_openai_response(question: str, cuenta: Cuenta, faq_crud: CRUDFaq, db: Session):
-    # Obtener contexto de preguntas frecuentes de la base de datos
     faqs = faq_crud.get_all_faqs(db=db)
     faqs_text = "\n".join([f"Pregunta: {faq.question}\nRespuesta: {faq.answer}" for faq in faqs])
 
@@ -35,7 +36,6 @@ def get_openai_response(question: str, cuenta: Cuenta, faq_crud: CRUDFaq, db: Se
     productos = cuenta_productos.get_productos_by_cuenta(db=db, cuenta_id=cuenta.id)
     productos_text = "\n".join([f"{prod.producto.nombre}: {prod.precio}" for prod in productos])
 
-    # Crear el prompt con contexto de productos y FAQs de la cuenta
     prompt = f"""
     Cuenta: {cuenta.nombre}
     Preguntas frecuentes:
@@ -48,24 +48,23 @@ def get_openai_response(question: str, cuenta: Cuenta, faq_crud: CRUDFaq, db: Se
     
     Responde de forma profesional basándote en la información de arriba.
     """
-
-    # Obtener respuesta de ChatGPT
-    response = client.chat.completions.create(model="gpt-4",
-    messages=[
-        {"role": "system", "content": assistant_prompt},
-        {"role": "user", "content": prompt}
-    ],
-    max_tokens=150)
+    
+    response = client.chat.completions.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": assistant_prompt},
+            {"role": "user", "content": prompt}
+        ],
+        max_tokens=1000
+    )
     return response.choices[0].message.content.strip()
 
 @router.post("/chatbot/ask/")
 async def ask_question(api_key: str = Query(..., description="API key de la cuenta"), question: str = Query(..., description="Pregunta del usuario"), db: Session = Depends(get_db)):
-    # Identificar la cuenta asociada a la api_key
     cuenta = db.query(Cuenta).filter(Cuenta.api_key == api_key).first()
     if not cuenta:
         raise HTTPException(status_code=404, detail="Cuenta no encontrada")
 
-    # Obtener respuesta de OpenAI
     answer = get_openai_response(question, cuenta, CRUDFaq(), db)
     return {"respuesta": answer}
 
@@ -91,7 +90,6 @@ async def facebook_webhook(request: Request, db: Session = Depends(get_db)):
     if 'hub.mode' in data and data['hub.mode'] == 'subscribe':
         return data.get('hub.challenge')
 
-    # Procesar mensajes
     if 'entry' in data:
         for entry in data['entry']:
             for message_event in entry.get('messaging', []):
@@ -99,14 +97,11 @@ async def facebook_webhook(request: Request, db: Session = Depends(get_db)):
                     sender_id = message_event['sender']['id']
                     message_text = message_event['message'].get('text')
                     if message_text:
-                        # Obtener la cuenta asociada al API key, en este caso puedes definir una cuenta por defecto
-                        api_key = "TU_API_KEY_DEFECTO"  # Cambia esto por la lógica de obtención de la API key real
+                        api_key = "TU_API_KEY_DEFECTO"  # Lógica de obtención de la API key real
                         cuenta = db.query(Cuenta).filter(Cuenta.api_key == api_key).first()
-
                         if not cuenta:
                             raise HTTPException(status_code=404, detail="Cuenta no encontrada")
 
-                        # Responder al usuario usando OpenAI o mensajes predefinidos
                         response_text = get_openai_response(message_text, cuenta, CRUDFaq(), db)
                         send_message(sender_id, response_text)
 
@@ -121,25 +116,36 @@ def send_message(recipient_id, text):
         "access_token": settings.FACEBOOK_PAGE_ACCESS_TOKEN
     }
     response = requests.post(url, headers=headers, json=data)
-
     if response.status_code != 200:
         raise HTTPException(status_code=response.status_code, detail="Error al enviar el mensaje.")
 
 def extract_questions_and_answers(content):
-    prompt = (
-        f"Extrae las preguntas y respuestas del siguiente texto y devuélvelo en formato JSON "
-        f"estrictamente válido. Cada elemento debe estar en la forma {{'question': 'pregunta', 'answer': 'respuesta'}}.\n\n{content}"
-    )
-    response = client.chat.completions.create(model="gpt-4",
-    messages=[{"role": "system", "content": assistant_prompt}, {"role": "user", "content": prompt}],
-    max_tokens=500)
-    response_text = response.choices[0].message.content.strip()
-    return parse_response(response_text)
+    chunk_size = 1500
+    chunks = [content[i:i + chunk_size] for i in range(0, len(content), chunk_size)]
+    questions_and_answers = []
+
+    for chunk in chunks:
+        prompt = (
+            f"Extrae las preguntas y respuestas del siguiente texto y devuélvelo en formato JSON "
+            f"estrictamente válido. Cada elemento debe estar en la forma {{'question': 'pregunta', 'answer': 'respuesta'}}.\n\n{chunk}"
+        )
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": assistant_prompt},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=500
+        )
+        response_text = response.choices[0].message.content.strip()
+        questions_and_answers.extend(parse_response(response_text))
+
+    return questions_and_answers
 
 def parse_response(response_text):
     try:
         parsed_content = json.loads(response_text)
-        if isinstance(parsed_content, list) and all(isinstance(item, dict) for item in parsed_content):
+        if isinstance(parsed_content, list) and all(isinstance(item, dict) and 'question' in item and 'answer' in item for item in parsed_content):
             return parsed_content
         else:
             raise ValueError("Formato JSON inválido: se esperaba una lista de diccionarios con 'question' y 'answer'.")
@@ -147,48 +153,67 @@ def parse_response(response_text):
         cleaned_text = re.sub(r'^[^{\[]+', '', response_text)
         cleaned_text = re.sub(r'[^}\]]+$', '', cleaned_text)
         try:
-            return json.loads(cleaned_text)
+            parsed_content = json.loads(cleaned_text)
+            if isinstance(parsed_content, list) and all(isinstance(item, dict) and 'question' in item and 'answer' in item for item in parsed_content):
+                return parsed_content
+            else:
+                raise ValueError("Formato JSON inválido después de la limpieza.")
         except json.JSONDecodeError:
             raise ValueError("Error al procesar la respuesta de OpenAI: el formato de JSON es inválido.")
 
-@router.post("/pdf/upload/")
-async def upload_pdf(file: UploadFile = File(...), db: Session = Depends(get_db)):
+def read_doc_file(file):
+    doc = docx.Document(file)
+    content = []
+    for para in doc.paragraphs:
+        content.append(para.text)
+    return "\n".join(content)
+
+@router.post("/upload/")
+async def upload_file(file: UploadFile = File(...), db: Session = Depends(get_db)):
     try:
-        content = [page.extract_text() for page in PyPDF2.PdfReader(file.file).pages]
-        questions_and_answers = extract_questions_and_answers("\n".join(content))
+        content = ""
+        if file.filename.endswith('.pdf'):
+            content = "\n".join([page.extract_text() for page in PyPDF2.PdfReader(file.file).pages])
+        elif file.filename.endswith('.doc') or file.filename.endswith('.docx'):
+            content = read_doc_file(file.file)
+        
+        questions_and_answers = extract_questions_and_answers(content)
 
         if not isinstance(questions_and_answers, list) or not all(isinstance(item, dict) for item in questions_and_answers):
             raise ValueError("El contenido extraído no está en el formato esperado de lista de diccionarios.")
 
         faq_crud = CRUDFaq()
-        faq_crud.create_pdf_with_faqs(db=db, content=questions_and_answers, pdf_name=file.filename)
-        return {"message": "PDF cargado y procesado correctamente"}
+        for qa in questions_and_answers:
+            # Crear una instancia de schemas.FAQCreate
+            faq_data = schemas.FAQCreate(question=qa['question'], answer=qa['answer'])
+            faq_crud.create_faq(db=db, faq=faq_data)  # Llamada corregida a create_faq
+
+        return {"message": "Archivo cargado y procesado correctamente, todas las preguntas y respuestas han sido registradas."}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Error al procesar el PDF: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Error al procesar el archivo: {str(e)}")
+
 
 @router.get("/facebook/webhook/")
 async def verify_webhook(request: Request):
-    # Facebook envía 'hub.mode', 'hub.challenge' y 'hub.verify_token' en la solicitud de verificación
     mode = request.query_params.get("hub.mode")
     token = request.query_params.get("hub.verify_token")
     challenge = request.query_params.get("hub.challenge")
 
-    # Compara el token enviado por Facebook con tu VERIFY_TOKEN
     if mode == "subscribe" and token == VERIFY_TOKEN:
-        return int(challenge)  # Devuelve el challenge para verificar el webhook
+        return int(challenge)
     else:
         raise HTTPException(status_code=403, detail="Token de verificación inválido")
 
 def collect_database_info(faq_crud, db):
-    # Recopilar y estructurar respuestas de la base de datos para términos generales
     faqs = faq_crud.get_all_faqs(db=db)
     medications = [f"Pregunta: {faq.question}\nRespuesta: {faq.answer}" for faq in faqs if "medicamento" in faq.question.lower() or "precio" in faq.question.lower()]
 
     if medications:
-        # Prepara el mensaje para el modelo de chat
         prompt = f"{assistant_prompt}\n\nOrganiza la siguiente información sobre medicamentos y precios:\n\n{''.join(medications)}"
-        response = client.chat.completions.create(model="gpt-4",
-        messages=[{"role": "system", "content": assistant_prompt}, {"role": "user", "content": prompt}],
-        max_tokens=500)
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "system", "content": assistant_prompt}, {"role": "user", "content": prompt}],
+            max_tokens=1000
+        )
         return response.choices[0].message.content.strip()
     return "No se encontró información específica sobre medicamentos o precios en la base de datos."
