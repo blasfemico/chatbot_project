@@ -129,27 +129,36 @@ def extract_questions_and_answers(content):
             f"Extrae las preguntas y respuestas del siguiente texto y devuélvelo en formato JSON "
             f"estrictamente válido. Cada elemento debe estar en la forma {{'question': 'pregunta', 'answer': 'respuesta'}}.\n\n{chunk}"
         )
-        response = client.chat.completions.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": assistant_prompt},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=500
-        )
-        response_text = response.choices[0].message.content.strip()
-        questions_and_answers.extend(parse_response(response_text))
-
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": assistant_prompt},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=500
+            )
+            response_text = response.choices[0].message.content.strip()
+            questions_and_answers.extend(parse_response(response_text))
+        except json.JSONDecodeError as e:
+            # Error específico para JSON inválido
+            raise ValueError(f"Error al decodificar JSON de OpenAI: {str(e)}")
+        except Exception as e:
+            # Otros errores
+            raise ValueError(f"Error en la extracción de preguntas y respuestas: {str(e)}")
     return questions_and_answers
+
 
 def parse_response(response_text):
     try:
+        # Intentar cargar el JSON directamente
         parsed_content = json.loads(response_text)
-        if isinstance(parsed_content, list) and all(isinstance(item, dict) and 'question' in item and 'answer' in item for item in parsed_content):
+        if isinstance(parsed_content, list) and all(isinstance(item, dict) for item in parsed_content):
             return parsed_content
         else:
             raise ValueError("Formato JSON inválido: se esperaba una lista de diccionarios con 'question' y 'answer'.")
     except json.JSONDecodeError:
+        # Eliminación controlada solo de elementos externos al JSON
         cleaned_text = re.sub(r'^[^{\[]+', '', response_text)
         cleaned_text = re.sub(r'[^}\]]+$', '', cleaned_text)
         try:
@@ -159,7 +168,8 @@ def parse_response(response_text):
             else:
                 raise ValueError("Formato JSON inválido después de la limpieza.")
         except json.JSONDecodeError:
-            raise ValueError("Error al procesar la respuesta de OpenAI: el formato de JSON es inválido.")
+            raise ValueError("Error al procesar la respuesta de OpenAI: el formato de JSON sigue siendo inválido.")
+
 
 def read_doc_file(file):
     doc = docx.Document(file)
