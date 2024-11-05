@@ -1,9 +1,9 @@
-# app/models.py
 from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime
 from sqlalchemy.orm import relationship
 from app.database import Base
 from datetime import datetime
 
+# Tabla para almacenar PDFs y FAQs asociados
 class PDF(Base):
     __tablename__ = "pdfs"
 
@@ -30,7 +30,7 @@ class Order(Base):
     email = Column(String, nullable=False)
     address = Column(String, nullable=False)
 
-# Tabla para almacenar productos
+# Tabla para almacenar productos generales
 class Product(Base):
     __tablename__ = "products"
 
@@ -67,3 +67,33 @@ class FacebookAccount(Base):
     account_name = Column(String, unique=True, nullable=False)
     api_key = Column(String, nullable=False)
 
+# Nuevos modelos para gestionar cuentas y productos con precios personalizados
+
+# Tabla para almacenar cuentas generales
+class Cuenta(Base):
+    __tablename__ = 'cuentas'
+    
+    id = Column(Integer, primary_key=True)
+    nombre = Column(String, unique=True, nullable=False)
+    api_key = Column(String, unique=True, nullable=False)
+    productos = relationship("CuentaProducto", back_populates="cuenta")
+
+# Tabla para productos específicos de cuentas con precios personalizados
+class Producto(Base):
+    __tablename__ = 'productos'
+    
+    id = Column(Integer, primary_key=True)
+    nombre = Column(String, unique=True, nullable=False)
+    cuenta_productos = relationship("CuentaProducto", back_populates="producto")
+
+# Tabla intermedia que relaciona cuentas y productos, permitiendo precios específicos por cuenta
+class CuentaProducto(Base):
+    __tablename__ = 'cuenta_producto'
+    
+    id = Column(Integer, primary_key=True)
+    cuenta_id = Column(Integer, ForeignKey('cuentas.id'))
+    producto_id = Column(Integer, ForeignKey('productos.id'))
+    precio = Column(Float, nullable=False)
+    
+    cuenta = relationship("Cuenta", back_populates="productos")
+    producto = relationship("Producto", back_populates="cuenta_productos")

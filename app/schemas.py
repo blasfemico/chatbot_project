@@ -31,32 +31,38 @@ class Order(OrderBase):
     class Config:
         from_attributes = True
 
-# Esquema para la tabla Product
-class ProductBase(BaseModel):
-    name: str
-    price: float
-    description: Optional[str] = None
-    city_id: Optional[int] = None
 
-class ProductCreate(ProductBase):
-    pass
 
-class Product(ProductBase):
+# Esquema para crear una nueva cuenta
+class CuentaCreate(BaseModel):
+    nombre: str
+    api_key: str
+
+class Cuenta(BaseModel):
     id: int
-
+    nombre: str
+    api_key: str
+    # Eliminamos la relación directa con `productos` para evitar recursión
     class Config:
-        from_attributes = True
+        from_attribute = True
 
-# Esquema para la tabla City
-class CityBase(BaseModel):
-    name: str
+# Esquema para crear un nuevo producto
+class ProductoCreate(BaseModel):
+    nombre: str
 
-class CityCreate(CityBase):
-    pass
-# Simplificado para evitar referencia cíclica en respuestas
-class City(CityBase):
+class Producto(BaseModel):
     id: int
-    products: List[Product] = []  # Lista simple de productos sin referencias a 'City' dentro de 'Product'
-
+    nombre: str
+    # Eliminamos la relación directa con `cuentas` para evitar recursión
     class Config:
-        from_attributes = True
+        orm_mode = True
+
+# Esquema para la relación entre cuentas y productos, incluyendo el precio específico
+class CuentaProducto(BaseModel):
+    id: int
+    cuenta_id: int
+    producto_id: int
+    precio: float
+    # Evitamos la inclusión de cuenta y producto completos aquí para romper la recursión
+    class Config:
+        from_attribute = True
