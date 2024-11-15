@@ -1,4 +1,4 @@
-const backendUrl = "http://localhost:9002/";
+const backendUrl = "https://kokomibot.up.railway.app/";
 
 async function loadSection(section) {
     let content = document.getElementById("content");
