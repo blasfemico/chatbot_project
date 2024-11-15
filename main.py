@@ -1,9 +1,10 @@
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from app.config import settings
 from app.routes import account_product, chatbot, orders, cities
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-
+import os
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -16,7 +17,6 @@ async def lifespan(app: FastAPI):
             Base.metadata.create_all(bind=engine)
     yield
 
-
 app = FastAPI(title=settings.PROJECT_NAME, lifespan=lifespan)
 
 app.add_middleware(
@@ -27,18 +27,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Incluye los routers existentes
 app.include_router(chatbot.router, tags=["Chatbot"])
 app.include_router(orders.router, tags=["Orders"])
 app.include_router(account_product.router, tags=["Account Product"])
 app.include_router(cities.router, tags=["Cities"])
 
-
-@app.get("/")
-async def root():
-    return {"message": "ping owo"}
-
+# Monta la carpeta 'frontend' como archivos estáticos
+app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
 
 if __name__ == "__main__":
     import uvicorn
-
-    uvicorn.run("main:app", host="localhost", port=9002, reload=settings.DEBUG_MODE)
+    uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT", 9002)), reload=settings.DEBUG_MODE)
