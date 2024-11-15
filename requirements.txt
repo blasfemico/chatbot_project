@@ -13,3 +13,8 @@ python-dotenv
 pydantic-settings
 openai
 python-docx
+scipy
+sentence-transformers
+chardet
+python-docx 
+pandas

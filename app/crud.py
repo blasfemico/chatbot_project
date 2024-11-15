@@ -1,133 +1,385 @@
 from sqlalchemy.orm import Session
-from app import models, schemas
-from typing import List, Dict
+from sqlalchemy import select
+from fastapi import HTTPException
+from app.models import (
+    FAQ,
+    Cuenta,
+    CuentaProducto,
+    Order,
+    Producto,
+    Ciudad,
+    ProductoCiudad,
+)
+from app.schemas import (
+    FAQCreate,
+    FAQUpdate,
+    CuentaCreate,
+    CuentaUpdate,
+    ProductosCreate,
+    CiudadCreate,
+    ProductosCuentaCreate,
+)
+from datetime import datetime
+from app import schemas
+import json
+from sentence_transformers import SentenceTransformer
+import logging
+from typing import List
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
-# CRUD para FAQs
+logging.basicConfig(level=logging.INFO)
+
+
+model = SentenceTransformer("all-MiniLM-L6-v2")
+
+
 class CRUDFaq:
-    def create_faq(self, db: Session, faq: schemas.FAQCreate):
-        db_faq = models.FAQ(question=faq.question, answer=faq.answer)
+    def __init__(self, model):
+        self.model = model
+
+    def create_faq(self, db: Session, faq_data: FAQCreate):
+        embedding = self.generate_embedding(faq_data.question)
+        db_faq = FAQ(
+            question=faq_data.question,
+            answer=faq_data.answer,
+            embedding=json.dumps(embedding),
+        )
         db.add(db_faq)
         db.commit()
         db.refresh(db_faq)
         return db_faq
 
-    def get_faq_by_id(self, db: Session, faq_id: int):
-        return db.query(models.FAQ).filter(models.FAQ.id == faq_id).first()
-
-    def get_all_faqs(self, db: Session, skip: int = 0, limit: int = 10):
-        return db.query(models.FAQ).offset(skip).limit(limit).all()
-
-    def create_pdf_with_faqs(self, db: Session, content: List[Dict[str, str]], pdf_name: str):
-        pdf_record = models.PDF(name=pdf_name)
-        db.add(pdf_record)
-        db.commit()
-        db.refresh(pdf_record)
-        
-        for item in content:
-            question = item.get("question")
-            answer = item.get("answer")
-            faq_entry = models.FAQ(question=question, answer=answer, pdf_id=pdf_record.id)
-            db.add(faq_entry)
-        
-        db.commit()
-
-    def get_response(self, db: Session, question: str):
-        faq = db.query(models.FAQ).filter(models.FAQ.question == question).first()
+    def update_faq(self, db: Session, faq_id: int, faq_data: FAQUpdate):
+        faq = db.query(FAQ).filter(FAQ.id == faq_id).first()
         if faq:
-            return faq.answer
-        return "Lo siento, no tengo una respuesta para esa pregunta."
+            if faq_data.question:
+                faq.question = faq_data.question
+                faq.embedding = json.dumps(self.generate_embedding(faq_data.question))
+            if faq_data.answer:
+                faq.answer = faq_data.answer
+            db.commit()
+            db.refresh(faq)
+        return faq
 
-# CRUD para Ordenes
-class CRUDOrder:
-    def create_order(self, db: Session, order: schemas.OrderCreate):
-        db_order = models.Order(phone=order.phone, email=order.email, address=order.address)
-        db.add(db_order)
-        db.commit()
-        db.refresh(db_order)
-        return db_order
+    def delete_faq(self, db: Session, faq_id: int):
+        faq = db.query(FAQ).filter(FAQ.id == faq_id).first()
+        if faq:
+            db.delete(faq)
+            db.commit()
 
-    def get_order_by_id(self, db: Session, order_id: int):
-        return db.query(models.Order).filter(models.Order.id == order_id).first()
+    def generate_embedding(self, text: str):
+        return self.model.encode(text).tolist()
 
-    def get_all_orders(self, db: Session, skip: int = 0, limit: int = 10):
-        return db.query(models.Order).offset(skip).limit(limit).all()
+    def find_exact_faq(self, db: Session, question: str):
+        return db.query(FAQ).filter(FAQ.question == question).first()
 
-# CRUD para Cuentas
-class CRUDCuenta:
-    def create_cuenta(self, db: Session, cuenta: schemas.CuentaCreate):
-        db_cuenta = models.Cuenta(nombre=cuenta.nombre, api_key=cuenta.api_key)
-        db.add(db_cuenta)
-        db.commit()
-        db.refresh(db_cuenta)
-        return db_cuenta
+    def get_all_faqs(self, db: Session):
+        return db.query(FAQ).all()
 
-    def get_all_cuentas(self, db: Session, skip: int = 0, limit: int = 10):
-        return db.query(models.Cuenta).offset(skip).limit(limit).all()
 
-    def get_cuenta_by_id(self, db: Session, cuenta_id: int):
-        return db.query(models.Cuenta).filter(models.Cuenta.id == cuenta_id).first()
-
-# CRUD para Productos
-class CRUDProducto:
-    def create_producto(self, db: Session, producto: schemas.ProductoCreate):
-        db_producto = models.Producto(nombre=producto.nombre)
+class CRUDProduct:
+    def create_producto(self, db: Session, producto_data: ProductosCreate):
+        """Crea un nuevo producto."""
+        db_producto = Producto(nombre=producto_data.nombre)
         db.add(db_producto)
         db.commit()
         db.refresh(db_producto)
         return db_producto
 
-    def get_producto_by_nombre(self, db: Session, nombre: str):
-        return db.query(models.Producto).filter(models.Producto.nombre == nombre).first()
-
-# CRUD para la relación entre Cuenta y Producto
-class CRUDCuentaProducto:
-    def add_producto_to_cuenta(self, db: Session, cuenta_id: int, producto: schemas.ProductoCreate, precio: float):
-        # Verificar si el producto ya existe o crearlo
-        db_producto = db.query(models.Producto).filter(models.Producto.nombre == producto.nombre).first()
-        if not db_producto:
-            db_producto = models.Producto(nombre=producto.nombre)
-            db.add(db_producto)
-            db.commit()
-            db.refresh(db_producto)
-        
-        # Asociar el producto con la cuenta
-        db_cuenta_producto = models.CuentaProducto(cuenta_id=cuenta_id, producto_id=db_producto.id, precio=precio)
-        db.add(db_cuenta_producto)
-        db.commit()
-        db.refresh(db_cuenta_producto)
-        return db_cuenta_producto
-
     def get_productos_by_cuenta(self, db: Session, cuenta_id: int):
-        return db.query(models.CuentaProducto).filter(models.CuentaProducto.cuenta_id == cuenta_id).all()
+        """Obtiene todos los productos y precios asociados a una cuenta específica."""
+        productos = (
+            db.query(CuentaProducto)
+            .join(Producto)
+            .filter(CuentaProducto.cuenta_id == cuenta_id)
+            .all()
+        )
+        return [{"producto": p.producto.nombre, "precio": p.precio} for p in productos]
 
-# CRUD para Mensajes
-class CRUDMessage:
-    def create_message(self, db: Session, user_id: int, content: str):
-        message = models.Message(user_id=user_id, content=content)
-        db.add(message)
-        db.commit()
-        db.refresh(message)
-        return message
+    def get_all_productos(self, db: Session):
+        """Obtiene todos los productos en la base de datos."""
+        return db.query(Producto).all()
 
-    def get_messages(self, db: Session, skip: int = 0, limit: int = 10):
-        return db.query(models.Message).order_by(models.Message.timestamp.desc()).offset(skip).limit(limit).all()
 
-# CRUD para Cuentas de Facebook
-class CRUDFacebookAccount:
-    def add_facebook_account(self, db: Session, account_name: str, api_key: str):
-        account = models.FacebookAccount(account_name=account_name, api_key=api_key)
-        db.add(account)
-        db.commit()
-        db.refresh(account)
-        return account
+class CRUDCuentaProducto:
+    def add_products_to_account(
+        self, db: Session, cuenta_id: int, productos_data: ProductosCuentaCreate
+    ):
+        created_productos = []
 
-    def get_facebook_account(self, db: Session, account_name: str):
-        return db.query(models.FacebookAccount).filter(models.FacebookAccount.account_name == account_name).first()
-
-    def update_facebook_account(self, db: Session, account_name: str, api_key: str):
-        account = self.get_facebook_account(db, account_name)
-        if account:
-            account.api_key = api_key
+        for producto_data in productos_data.productos:
+            nuevo_producto = Producto(nombre=producto_data.nombre)
+            db.add(nuevo_producto)
             db.commit()
-            db.refresh(account)
-        return account
+            db.refresh(nuevo_producto)
+
+            cuenta_producto = CuentaProducto(
+                cuenta_id=cuenta_id,
+                producto_id=nuevo_producto.id,
+                precio=producto_data.precio,
+            )
+            db.add(cuenta_producto)
+            created_productos.append(cuenta_producto)
+
+        db.commit()
+
+        return {
+            "message": "Productos creados y asociados a la cuenta",
+            "productos": [
+                {
+                    "producto_id": p.producto_id,
+                    "cuenta_id": p.cuenta_id,
+                    "precio": p.precio,
+                }
+                for p in created_productos
+            ],
+        }
+
+    def update_product_price_for_account(
+        self, db: Session, cuenta_id: int, producto_id: int, new_price: float
+    ):
+        """Actualiza el precio de un producto para una cuenta específica."""
+        cuenta_producto = (
+            db.query(CuentaProducto)
+            .filter_by(cuenta_id=cuenta_id, producto_id=producto_id)
+            .first()
+        )
+        if cuenta_producto:
+            cuenta_producto.precio = new_price
+            db.commit()
+            db.refresh(cuenta_producto)
+        return cuenta_producto
+
+    def remove_product_from_account(
+        self, db: Session, cuenta_id: int, producto_id: int
+    ):
+        """Elimina la relación de un producto con una cuenta."""
+        cuenta_producto = (
+            db.query(CuentaProducto)
+            .filter_by(cuenta_id=cuenta_id, producto_id=producto_id)
+            .first()
+        )
+        if cuenta_producto:
+            db.delete(cuenta_producto)
+            db.commit()
+            return True
+        return False
+
+    def get_products_for_account(self, db: Session, cuenta_id: int):
+        """Obtiene la lista de productos y precios de una cuenta específica."""
+        productos = (
+            db.query(Producto.nombre, CuentaProducto.precio)
+            .join(CuentaProducto)
+            .filter(CuentaProducto.cuenta_id == cuenta_id)
+            .all()
+        )
+        return [{"producto": p[0], "precio": p[1]} for p in productos]
+
+
+class CRUDOrder:
+    @staticmethod
+    def get_delivery_day_message():
+        today = datetime.today().weekday()  # 0 = Lunes, 6 = Domingo
+        delivery_day = "lunes" if today == 5 else "mañana"
+        return f"Su pedido se entregará el {delivery_day}."
+
+    def create_order(self, db: Session, order: schemas.OrderCreate, nombre: str, apellido: str) -> schemas.OrderResponse:
+        try:
+            # Validar campos esenciales
+            if not order.phone:
+                raise HTTPException(status_code=400, detail="El campo 'phone' es obligatorio.")
+            if not order.producto:
+                raise HTTPException(status_code=400, detail="El campo 'producto' es obligatorio.")
+
+            # Log de datos antes de crear
+            logging.info(f"Creando nueva orden con datos: phone={order.phone}, email={order.email}, address={order.address}, "
+                        f"producto={order.producto}, cantidad_cajas={order.cantidad_cajas}, nombre={nombre}, apellido={apellido}")
+
+            # Crear la nueva orden
+            new_order = Order(
+                phone=order.phone,
+                email=order.email or "N/A",
+                address=order.address or "N/A",
+                producto=order.producto,
+                cantidad_cajas=order.cantidad_cajas or 1,
+                nombre=nombre,
+                apellido=apellido,
+                ad_id=order.ad_id or "N/A"
+            )
+            db.add(new_order)
+            db.commit()
+            db.refresh(new_order)
+            return schemas.OrderResponse.from_orm(new_order)
+        except IntegrityError as e:
+            db.rollback()
+            logging.error(f"Error de integridad al crear la orden: {str(e)}")
+            raise HTTPException(status_code=400, detail="Error de integridad en la base de datos.")
+        except SQLAlchemyError as e:
+            db.rollback()
+            logging.error(f"Error general de SQLAlchemy al crear la orden: {str(e)}")
+            raise HTTPException(status_code=500, detail="Error en la base de datos.")
+        except Exception as e:
+            db.rollback()
+            logging.error(f"Error inesperado al crear la orden: {str(e)}")
+            raise HTTPException(status_code=500, detail="Error inesperado al crear la orden.")
+
+
+
+    def update_order(self, db: Session, order_id: int, order_data: schemas.OrderUpdate):
+        try:
+            logging.info(f"Actualizando la orden con ID {order_id}.")
+            order = db.query(Order).filter(Order.id == order_id).first()
+            if order:
+                if order_data.phone:
+                    order.phone = order_data.phone
+                if order_data.email:
+                    order.email = order_data.email
+                if order_data.address:
+                    order.address = order_data.address
+                db.commit()
+                db.refresh(order)
+                logging.info(f"Orden actualizada exitosamente: ID {order.id}")
+                return order
+            else:
+                logging.warning(f"No se encontró la orden con ID {order_id}.")
+                raise HTTPException(status_code=404, detail="Orden no encontrada")
+        except Exception as e:
+            logging.error(f"Error al actualizar la orden: {str(e)}")
+            db.rollback()
+            raise HTTPException(status_code=500, detail="Error al actualizar la orden.")
+
+    def delete_order(self, db: Session, order_id: int):
+        try:
+            logging.info(f"Eliminando la orden con ID {order_id}.")
+            order = db.query(Order).filter(Order.id == order_id).first()
+            if order:
+                db.delete(order)
+                db.commit()
+                logging.info(f"Orden eliminada exitosamente: ID {order_id}")
+                return True
+            else:
+                logging.warning(f"No se encontró la orden con ID {order_id} para eliminar.")
+                raise HTTPException(status_code=404, detail="Orden no encontrada")
+        except Exception as e:
+            logging.error(f"Error al eliminar la orden: {str(e)}")
+            db.rollback()
+            raise HTTPException(status_code=500, detail="Error al eliminar la orden.")
+
+    def get_order_by_id(self, db: Session, order_id: int):
+        logging.info(f"Obteniendo la orden con ID {order_id}.")
+        return db.query(Order).filter(Order.id == order_id).first()
+
+    def get_all_orders(self, db: Session, skip: int = 0, limit: int = 10):
+        logging.info(f"Obteniendo todas las órdenes. Saltar: {skip}, Límite: {limit}")
+        orders_query = db.execute(
+            select(
+                Order.id,
+                Order.phone,
+                Order.email,
+                Order.address,
+                Order.producto,
+                Order.cantidad_cajas,
+                Order.nombre,   # Agregado
+                Order.apellido,  # Agregado
+                Order.ad_id
+
+                
+            ).offset(skip).limit(limit)
+        )
+        orders = orders_query.fetchall()
+        
+        # Construye la lista de diccionarios para coincidir con OrderResponse
+        return [
+            {
+                "id": order.id,
+                "phone": order.phone or "N/A",
+                "email": order.email or "N/A",
+                "address": order.address or "N/A",
+                "producto": order.producto,
+                "cantidad_cajas": order.cantidad_cajas,
+                "nombre": order.nombre or "N/A",   # Maneja el caso de campos faltantes
+                "apellido": order.apellido or "N/A",  # Maneja el caso de campos faltantes
+                "ad_id": order.ad_id or "N/A"
+            }
+            for order in orders
+        ]
+
+
+
+class CRUDCuenta:
+    def create_cuenta(self, db: Session, cuenta_data: CuentaCreate):
+        db_cuenta = Cuenta(nombre=cuenta_data.nombre, page_id=cuenta_data.page_id)
+        db.add(db_cuenta)
+        db.commit()
+        db.refresh(db_cuenta)
+        return db_cuenta
+
+    def update_cuenta(self, db: Session, cuenta_id: int, cuenta_data: CuentaUpdate):
+        cuenta = db.query(Cuenta).filter(Cuenta.id == cuenta_id).first()
+        if cuenta:
+            if cuenta_data.nombre:
+                cuenta.nombre = cuenta_data.nombre
+            if cuenta_data.api_key:
+                cuenta.api_key = cuenta_data.api_key
+            db.commit()
+            db.refresh(cuenta)
+        return cuenta
+
+    def delete_cuenta(self, db: Session, cuenta_id: int):
+        cuenta = db.query(Cuenta).filter(Cuenta.id == cuenta_id).first()
+        if cuenta:
+            db.delete(cuenta)
+            db.commit()
+        return cuenta
+
+    def get_cuenta_by_id(self, db: Session, cuenta_id: int):
+        return db.query(Cuenta).filter(Cuenta.id == cuenta_id).first()
+
+    def get_all_cuentas(self, db: Session, skip: int = 0, limit: int = 10):
+        return db.query(Cuenta).offset(skip).limit(limit).all()
+
+
+class CRUDCiudad:
+    def create_ciudad(self, db: Session, ciudad_data: CiudadCreate):
+        db_ciudad = Ciudad(nombre=ciudad_data.nombre)
+        db.add(db_ciudad)
+        db.commit()
+        db.refresh(db_ciudad)
+        return db_ciudad
+
+    def add_products_to_city(
+        self, db: Session, ciudad_id: int, productos_nombres: List[str]
+    ):
+        ciudad = db.query(Ciudad).filter(Ciudad.id == ciudad_id).first()
+        if not ciudad:
+            raise HTTPException(status_code=404, detail="Ciudad no encontrada")
+
+        for nombre_producto in productos_nombres:
+            producto = (
+                db.query(Producto).filter(Producto.nombre == nombre_producto).first()
+            )
+            if not producto:
+                producto = Producto(nombre=nombre_producto)
+                db.add(producto)
+                db.commit()
+                db.refresh(producto)
+
+            producto_ciudad = ProductoCiudad(
+                ciudad_id=ciudad.id, producto_id=producto.id
+            )
+            db.add(producto_ciudad)
+        db.commit()
+        return {"message": "Productos asociados a la ciudad"}
+
+    def get_products_for_city(self, db: Session, ciudad_id: int):
+        productos = (
+            db.query(Producto.nombre)
+            .join(ProductoCiudad, Producto.id == ProductoCiudad.producto_id)
+            .filter(ProductoCiudad.ciudad_id == ciudad_id)
+            .all()
+        )
+        return [{"nombre": p[0]} for p in productos]
+
+    @staticmethod
+    def get_all_cities(db: Session):
+        return db.query(Ciudad).all()

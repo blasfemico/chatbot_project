@@ -1,51 +1,29 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Admin de Chatbot</title>
-  <link rel="stylesheet" href="style.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel de Administración</title>
+    <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div class="container">
-    <h1>Panel de Administración del Chatbot</h1>
+    <header>
+        <h1>Panel de Administración</h1>
+        <nav>
+            <ul>
+                <li><a href="#cuentas" onclick="loadSection('cuentas')">Cuentas</a></li>
+                <li><a href="#ciudades" onclick="loadSection('ciudades')">Ciudades</a></li>
+                <li><a href="#productos" onclick="loadSection('productos')">Productos</a></li>
+                <li><a href="#faqs" onclick="loadSection('faqs')">FAQs</a></li>
+                <li><a href="#ordenes" onclick="loadSection('ordenes')">Órdenes</a></li>
+                <li><a href="#chatbot" onclick="loadSection('chatbot')">Chatbot</a></li>
 
-    <!-- Gestión de Productos -->
-    <div class="section">
-      <h2>Gestión de Productos</h2>
-      <input type="text" id="productName" placeholder="Nombre del Producto">
-      <input type="number" id="productPrice" placeholder="Precio del Producto">
-      <button onclick="addProduct()">Agregar Producto</button>
-      <ul id="productsList">
-        <!-- Lista de productos cargada dinámicamente -->
-      </ul>
-    </div>
-
-    <!-- Enviar Mensaje al Chatbot -->
-    <div class="section">
-      <h2>Enviar Mensaje al Chatbot</h2>
-      <input type="text" id="chatMessage" placeholder="Escribe un mensaje">
-      <button onclick="sendMessage()">Enviar</button>
-      <div id="chatResponse"></div>
-    </div>
-
-    <!-- Subir PDF -->
-    <div class="section">
-      <h2>Subir PDF</h2>
-      <input type="file" id="pdfUpload" accept=".pdf">
-      <button onclick="uploadPDF()">Subir PDF</button>
-      <div id="pdfStatus"></div>
-    </div>
-
-    <!-- Conectar Cuentas de Facebook -->
-    <div class="section">
-      <h2>Conectar Cuentas de Facebook</h2>
-      <input type="text" id="facebookName" placeholder="Nombre de la Cuenta">
-      <input type="text" id="facebookApiKey" placeholder="API Key">
-      <button onclick="addFacebookAccount()">Conectar Cuenta</button>
-    </div>
-  </div>
-
-  <script src="script.js"></script>
+            </ul>
+        </nav>
+    </header>
+    <main id="content">
+        <!-- Aquí se cargará el contenido dinámico -->
+    </main>
+    <script src="script.js"></script>
 </body>
 </html>
