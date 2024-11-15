@@ -207,9 +207,6 @@ class ChatbotService:
 
     @staticmethod
     async def ask_question(question: str, cuenta_id: int, db: Session, hacer_order=False) -> dict:
-        """
-        Maneja el flujo de preguntas y respuestas del chatbot, incluyendo la creación de órdenes.
-        """
         # Inicializar el contexto si no existe para la cuenta
         if cuenta_id not in ChatbotService.user_contexts:
             ChatbotService.user_contexts[cuenta_id] = {
@@ -235,7 +232,7 @@ class ChatbotService:
 
         # Verificar y cargar embeddings si no están cargados
         if not ChatbotService.product_embeddings:
-            logging.info("Cargando embeddings de productos...")
+            logging.info("Cargando embeddings de productos por primera vez...")
             ChatbotService.load_product_embeddings(db)
 
         # Extraer información del mensaje
@@ -352,6 +349,7 @@ class ChatbotService:
 
 
 
+
         
     
 
@@ -399,19 +397,21 @@ class ChatbotService:
         logging.info(f"Número de teléfono detectado: {phone_number}")
         return phone_number
 
+
     @staticmethod
     def extract_product_and_quantity(text: str) -> tuple:
-        """
-        Extrae el producto y la cantidad mencionados en el texto usando embeddings para identificar productos.
-        """
-        # Detectar cantidades en el texto
+        # Verificar si los embeddings de productos están cargados
+        if not ChatbotService.product_embeddings:
+            logging.info("Intentando cargar embeddings de productos dinámicamente...")
+            try:
+                ChatbotService.load_product_embeddings(get_db())  # Llamada para cargar embeddings
+            except Exception as e:
+                logging.error(f"No se pudieron cargar los embeddings: {str(e)}")
+                return None, None
+
+        # Continuar con la detección de cantidades y similitudes de productos
         cantidad_match = re.search(r"\b(\d+)\b", text)
         cantidad = int(cantidad_match.group(1)) if cantidad_match else 1
-
-        # Verificar si los embeddings están cargados
-        if not ChatbotService.product_embeddings:
-            logging.error("Embeddings de productos no están cargados. No se puede procesar el producto.")
-            raise ValueError("Embeddings no cargados. Asegúrate de cargar los embeddings antes de llamar a esta función.")
 
         # Obtener el embedding del texto ingresado
         text_embedding = ChatbotService.model.encode(text, convert_to_tensor=True)
@@ -439,7 +439,8 @@ class ChatbotService:
 
         except Exception as e:
             logging.error(f"Error al procesar embeddings: {str(e)}")
-            raise ValueError("Error en los embeddings.") from e
+            return None, None  # Evitar errores en caso de problemas con los embeddings
+
 
     @staticmethod
     def load_product_embeddings(db: Session):
