@@ -349,7 +349,7 @@ class ChatbotService:
             if faq_answer:
                 return {"respuesta": faq_answer}
 
-            return {"respuesta": "No estoy seguro de cómo ayudarte. ¿Podrías preguntar de otra forma?"}
+            
 
         # Fallback a lógica estándar si no se detecta una intención clara
         logging.info("[DEBUG] No se detectó una intención clara, utilizando lógica estándar.")
