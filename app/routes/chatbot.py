@@ -398,37 +398,37 @@ class ChatbotService:
         return phone_number
 
 
+
     @staticmethod
     def extract_product_and_quantity(text: str) -> tuple:
-        # Verificar si los embeddings de productos están cargados
         if not ChatbotService.product_embeddings:
             logging.info("Intentando cargar embeddings de productos dinámicamente...")
             try:
-                ChatbotService.load_product_embeddings(get_db())  # Llamada para cargar embeddings
+                ChatbotService.load_product_embeddings(get_db())
             except Exception as e:
                 logging.error(f"No se pudieron cargar los embeddings: {str(e)}")
                 return None, None
 
-        # Continuar con la detección de cantidades y similitudes de productos
-        cantidad_match = re.search(r"\b(\d+)\b", text)
+        # Extraer el número telefónico primero
+        phone_number = ChatbotService.extract_phone_number(text)
+        sanitized_text = text.replace(phone_number, "") if phone_number else text
+
+        # Buscar cantidad
+        cantidad_match = re.search(r"\b(\d+)\b", sanitized_text)
         cantidad = int(cantidad_match.group(1)) if cantidad_match else 1
 
         # Obtener el embedding del texto ingresado
-        text_embedding = ChatbotService.model.encode(text, convert_to_tensor=True)
+        text_embedding = ChatbotService.model.encode(sanitized_text, convert_to_tensor=True)
 
         try:
-            # Convertir los embeddings de productos en tensores
             product_embeddings_tensor = torch.stack(
                 [torch.tensor(embedding) for embedding in ChatbotService.product_embeddings.values()]
             )
 
-            # Calcular la similitud coseno entre el texto y los productos
             similarities = util.cos_sim(text_embedding, product_embeddings_tensor)
-
-            # Obtener el índice y el valor de la similitud más alta
             max_similarity_index = similarities.argmax().item()
             max_similarity_value = similarities[0, max_similarity_index].item()
-            threshold = 0.5  # Umbral para considerar un producto como coincidencia
+            threshold = 0.5
 
             producto = None
             if max_similarity_value >= threshold:
@@ -439,7 +439,8 @@ class ChatbotService:
 
         except Exception as e:
             logging.error(f"Error al procesar embeddings: {str(e)}")
-            return None, None  # Evitar errores en caso de problemas con los embeddings
+            return None, None
+
 
 
     @staticmethod
