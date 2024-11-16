@@ -259,7 +259,14 @@ class ChatbotService:
         logging.info(f"Contexto actualizado para cuenta_id {cuenta_id}: {context}")
 
         # Verificar si todos los datos necesarios para una orden están presentes
-        if context["producto"] and context["cantidad"] and context["telefono"] and context["nombre"] and context["apellido"]:
+        # Cambios aquí: Verificación adicional para evitar error si no hay producto
+        if (
+            context.get("producto")  # Verifica si existe la clave 'producto'
+            and context["cantidad"]
+            and context["telefono"]
+            and context["nombre"]
+            and context["apellido"]
+        ):
             logging.info("Datos completos para crear la orden.")
             context["intencion_detectada"] = "crear_orden"
             return await ChatbotService.ask_question(question, cuenta_id, db, hacer_order=True)
@@ -311,6 +318,7 @@ class ChatbotService:
             intent_data = json.loads(raw_response)
         except (JSONDecodeError, Exception) as e:
             logging.error(f"Error al identificar intención: {str(e)}")
+            # Cambios aquí: Se asegura de que la intención no detenga el flujo
             intent_data = {"intent": "otro"}
 
         # Procesar la respuesta según la intención detectada
@@ -352,10 +360,17 @@ class ChatbotService:
             if faq_answer:
                 db_response = f"{faq_answer}\n\n{db_response}"
 
-        respuesta = ChatbotService.generate_humanlike_response(
-            question, db_response, ciudades_nombres
-        )
+        # Cambios aquí: Continuar el flujo incluso si hay errores menores
+        try:
+            respuesta = ChatbotService.generate_humanlike_response(
+                question, db_response, ciudades_nombres
+            )
+        except Exception as e:
+            logging.error(f"Error al generar respuesta humanlike: {str(e)}")
+            respuesta = "Hubo un problema al procesar tu solicitud. Por favor, intenta de nuevo más tarde."
+
         return {"respuesta": respuesta}
+
 
 
 
