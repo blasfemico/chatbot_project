@@ -309,7 +309,7 @@ class ChatbotService:
 
         try:
             response = client.chat.completions.create(
-                model="gpt-4",
+                model="gpt-4o",
                 messages=[{"role": "user", "content": intent_prompt}],
                 max_tokens=100,
             )
@@ -321,10 +321,10 @@ class ChatbotService:
             intent_data = {"intent": "otro"}
 
         # Procesar la respuesta según la intención detectada
+        db_response = ""
         if intent_data.get("intent") == "listar_productos":
             productos = crud_producto.get_productos_by_cuenta(db, cuenta_id)
             db_response = "\n".join([f"{prod['producto']}: Precio {prod['precio']} pesos" for prod in productos])
-            return {"respuesta": db_response}
 
         elif intent_data.get("intent") == "productos_ciudad" and intent_data.get("ciudad"):
             ciudad_nombre = intent_data["ciudad"]
@@ -337,34 +337,31 @@ class ChatbotService:
                     .all()
                 )
                 productos_nombres = [producto.nombre for producto in productos]
-                return {"respuesta": f"Los productos disponibles en {ciudad_nombre} son: {', '.join(productos_nombres)}."}
-            return {"respuesta": f"No hay información sobre la ciudad {ciudad_nombre}."}
+                db_response = (
+                    f"Los productos disponibles en {ciudad_nombre} son: {', '.join(productos_nombres)}."
+                    if productos_nombres
+                    else f"No hay información sobre la ciudad {ciudad_nombre}."
+                )
 
         elif intent_data.get("intent") == "listar_ciudades":
-            return {"respuesta": f"Disponemos de productos en las siguientes ciudades:\n{productos_por_ciudad_str}."}
+            db_response = f"Disponemos de productos en las siguientes ciudades:\n{productos_por_ciudad_str}."
 
         elif intent_data.get("intent") == "otro":
-            logging.info("[DEBUG] El mensaje no está relacionado con productos o ciudades.")
             faq_answer = await ChatbotService.search_faq_in_db(question, db)
             if faq_answer:
-                logging.info(f"[DEBUG] Respuesta encontrada en la base de datos: {faq_answer}")
-                return {"respuesta": faq_answer}
-                    
+                db_response = faq_answer
 
         # Fallback a lógica estándar si no se detecta una intención clara
-        logging.info("[DEBUG] No se detectó una intención clara, utilizando lógica estándar.")
-        faq_answer = await ChatbotService.search_faq_in_db(question, db)
-        productos = crud_producto.get_productos_by_cuenta(db, cuenta_id)
-        db_response = "\n".join(
-            [f"{prod['producto']}: Precio {prod['precio']} pesos" for prod in productos]
-        )
-        if faq_answer:
-            db_response = f"{faq_answer}\n\n{db_response}"
+        if not db_response:
+            productos = crud_producto.get_productos_by_cuenta(db, cuenta_id)
+            db_response = "\n".join([f"{prod['producto']}: Precio {prod['precio']} pesos" for prod in productos])
 
+        # Generar respuesta humanizada
         respuesta = ChatbotService.generate_humanlike_response(
             question, db_response, ciudades_nombres
         )
         return {"respuesta": respuesta}
+
 
 
 
