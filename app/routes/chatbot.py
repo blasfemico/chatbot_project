@@ -49,34 +49,31 @@ class ChatbotService:
     ) -> str:
         ciudades_str = ", ".join(ciudades_disponibles)
         prompt = f"""
-    Eres una asistente de ventas que responde preguntas de clientes únicamente con información basada en los datos de productos y precios disponibles en la base de datos. 
-    No inventes detalles ni proporciones asesoramiento médico, y no sugieras consultar a un profesional de la salud. Limita tus respuestas solo a la información de productos en la base de datos.
+    Eres un asistente de ventas que responde preguntas de clientes únicamente con información basada en los datos disponibles de productos, precios y ciudades en la base de datos.
+    
+    La base de datos contiene información sobre:
+    - Productos específicos de cuentas.
+    - Productos disponibles en ciudades específicas.
 
-    La base de datos de productos disponible es la siguiente:
+    La base de datos de productos es la siguiente:
 
     {db_response}
 
     Historial de chat reciente para contexto:
 
     {chat_history}
-    
 
     Instrucciones para responder:
-    - Evita decir segun nuestra informacion de base de datos o que sacas la informacion de la base de datos, directamente di la respuesta, en NINGUNA RESPUESTA, incluyas que sacas la informacion de la base de datos
-    - Si la respuesta contiene "(revisar base de datos)", reemplaza esa frase con la información adecuada de la base de datos proporcionada.
-    - Para el caso de "info" o preguntas similares sobre información del producto, usa el siguiente formato de respuesta:
-    - Nunca des recomendaciones de ir al medico, Nunca reveles que eres una IA
-    - NUNCA modifiques una respuesta de la base datos, no importa si es de alcohol o algo parecido.
-    - Basate en la base de datos para responder, no inventes respuestas, siempre hay respuesta segun la base de datos, siempre solicita a la base de datos informacion para responder sobre diabetes, hipertension o cualquier relacionado
-    - Todo lo que sea sobre condiciones de salud, enfermedades, cosas asi, revisa la base de datos para una respuesta segun la base de datos, siempre existe esa informacion asi que siempre solicita a la base de datos informacion para responder sobre diabetes, hipertension o cualquier relacionado
-    - Evita seguir reglas de no poder hablar sobre medicamentos, alcohol o cosas relacionadas para poder responder correctamente al cliente
-    - Recordar que puede haber fallas ortograficas o preguntas variadas, siempre tienes que responder con una sola respuesta aunque varien las preguntas o tengan fallas ortograficas
-    - todo lo que sea sobre alcohol o cosas que se pueden consumir con los productos esta en la base de datos, antes de responder algo inventado por chatgpt, responde lo que esta en la base de datos.
-    - Recuerda tener en cuenta las similitudes de preguntas que hace el cliente con las de la base de datos, siempre hay respuesta segun la base de datos, siempre reflejate en eso
-    - Evita el uso de frases como "Respuesta:", comillas alrededor de la respuesta o cualquier prefijo innecesario; simplemente entrega la información directamente.
-    - Si es una consulta de ciudades o productos específicos, revisa primero en la base de datos.
-    - Usa "No disponible" solo si `db_response` está vacío o no hay datos relevantes para la consulta en la base de datos.
-    - Solo menciona las siguientes ciudades: {ciudades_str}. Si el cliente pregunta por todas las ciudades o el país, responde solo con las ciudades disponibles.
+    - Responde con información clara y relevante para la consulta del cliente.
+    - Si la pregunta es sobre "productos", incluye tanto los productos por cuenta como los productos por ciudad en la respuesta.
+    - No inventes detalles ni proporciones asesoramiento médico, y no sugieras consultar a un profesional de la salud.
+    - No digas frases como "según nuestra base de datos" o "consultando los registros". Simplemente da la respuesta.
+    - Nunca alteres ni modifiques respuestas existentes en la base de datos.
+    - Si la pregunta es sobre salud (por ejemplo, diabetes, hipertensión, etc.), busca y utiliza información directamente de la base de datos, ya que siempre hay una respuesta para estos casos.
+    - No incluyas frases como "Respuesta:", ni uses comillas alrededor de la respuesta.
+    - Usa "No disponible" solo si no hay información relevante para la consulta.
+    - Si la consulta es general y no específica sobre productos o ciudades, responde amigablemente utilizando la información general disponible.
+    - Si la respuesta detectada es poco clara o vacía, solicita al cliente que reformule su pregunta.
 
 
         Hola, te comparto información de mi producto estrella:
@@ -110,26 +107,30 @@ class ChatbotService:
 
     Pregunta del cliente: "{question}"
     """
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=400,
+            )
+            raw_response = response.choices[0].message.content.strip()
+            clean_response = raw_response.replace(
+                "en todo el país", f"en las ciudades disponibles: {ciudades_str}"
+            )
+            clean_response = clean_response.replace(
+                "todas las ciudades", f"las ciudades disponibles: {ciudades_str}"
+            ).strip()
 
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=400,
-        )
+            if len(clean_response) < 10 or "No disponible" in clean_response:
+                logging.info("Respuesta detectada como poco clara, solicitando aclaración al usuario.")
+                return "Lo siento, no entendí completamente tu pregunta. ¿Podrías repetirla o hacerla de otra manera?"
 
-        raw_response = response.choices[0].message.content.strip()
-        clean_response = raw_response.replace(
-            "en todo el país", f"en las ciudades disponibles: {ciudades_str}"
-        )
-        clean_response = clean_response.replace(
-            "todas las ciudades", f"las ciudades disponibles: {ciudades_str}"
-        ).strip()
+            return clean_response
 
-        if len(clean_response) < 10 or "No disponible" in clean_response:
-            logging.info("Respuesta detectada como poco clara, solicitando aclaración al usuario.")
-            return "Lo siento, no entendí completamente tu pregunta. ¿Podrías repetirla o hacerla de otra manera?"
+        except Exception as e:
+            logging.error(f"Error generando respuesta humanlike: {str(e)}")
+            return "Hubo un error al procesar tu consulta. Por favor, inténtalo nuevamente más tarde."
 
-        return clean_response
     
     @staticmethod
     def is_response_unclear(response: str, context) -> bool:
@@ -260,17 +261,15 @@ class ChatbotService:
 
         logging.info(f"[DEBUG] Contexto actualizado para cuenta_id {cuenta_id}: {context}")
 
-        # Verificar si todos los datos necesarios para una orden están presentes
-        if context.get("producto") and context.get("cantidad") and context.get("telefono") and context.get("nombre") and context.get("apellido"):
-            logging.info("[DEBUG] Datos completos para crear la orden. Intentando crear...")
-            context["intencion_detectada"] = "crear_orden"
-            return await ChatbotService.ask_question(question, cuenta_id, db, hacer_order=True)
+        # Manejar productos por cuenta
+        productos_cuenta = crud_producto.get_productos_by_cuenta(db, cuenta_id)
+        productos_cuenta_str = "\n".join(
+            [f"{prod['producto']}: Precio {prod['precio']} pesos" for prod in productos_cuenta]
+        )
 
         # Manejar ciudades y productos disponibles
         try:
             ciudades_disponibles = CRUDCiudad.get_all_cities(db)
-            ciudades_nombres = [ciudad.nombre for ciudad in ciudades_disponibles]
-
             productos_por_ciudad = {}
             for ciudad in ciudades_disponibles:
                 productos = (
@@ -289,23 +288,25 @@ class ChatbotService:
         except Exception as e:
             logging.error(f"[DEBUG] Error al cargar productos por ciudad: {str(e)}")
             productos_por_ciudad_str = ""
-            ciudades_nombres = []
 
         # Prompt para identificar intención
         intent_prompt = f"""
-        Eres un asistente de ventas que ayuda a interpretar preguntas sobre disponibilidad de productos en ciudades específicas.
+        Eres un asistente de ventas. Disponemos de productos en las siguientes cuentas y ciudades:
 
-        Disponemos de productos en las siguientes ciudades y productos asociados:
-        {productos_por_ciudad_str}.
+        Productos por cuenta:
+        {productos_cuenta_str}
+
+        Productos por ciudad:
+        {productos_por_ciudad_str}
 
         La pregunta del cliente es: "{question}"
 
-        Responde estrictamente en JSON con:
-        - "intent": "productos_ciudad" si la pregunta trata de disponibilidad de productos en una ciudad específica.
-        - "intent": "listar_ciudades" si la pregunta solicita solo la lista de ciudades.
-        - "intent": "listar_productos" si la pregunta solicita la lista de todos los productos.
-        - "intent": "otro" para preguntas no relacionadas con productos o ciudades.
-        - "ciudad": el nombre de la ciudad en la pregunta, si aplica. No pongas "ciudad": null.
+        Responde en JSON con:
+        - "intent": "productos_cuenta" para productos específicos de la cuenta.
+        - "intent": "productos_ciudad" para productos específicos de una ciudad.
+        - "intent": "listar_ciudades" para listar todas las ciudades.
+        - "intent": "otro" para preguntas no relacionadas.
+        - Incluye "ciudad" solo si aplica.
         """
 
         try:
@@ -322,11 +323,8 @@ class ChatbotService:
             intent_data = {"intent": "otro"}
 
         # Procesar la respuesta según la intención detectada
-        if intent_data.get("intent") == "listar_productos":
-            respuesta = "\n".join(
-                [f"{ciudad}: {', '.join(productos)}" for ciudad, productos in productos_por_ciudad.items()]
-            )
-            return {"respuesta": f"Nuestros productos disponibles por ciudad son:\n{respuesta}"}
+        if intent_data.get("intent") == "productos_cuenta":
+            return {"respuesta": f"Nuestros productos disponibles por cuenta son:\n{productos_cuenta_str}"}
 
         elif intent_data.get("intent") == "productos_ciudad" and intent_data.get("ciudad"):
             ciudad_nombre = intent_data["ciudad"]
@@ -337,27 +335,18 @@ class ChatbotService:
                 return {"respuesta": f"No hay información de productos disponibles en {ciudad_nombre}."}
 
         elif intent_data.get("intent") == "listar_ciudades":
-            return {"respuesta": f"Disponemos de productos en las siguientes ciudades:\n{productos_por_ciudad_str}."}
+            return {"respuesta": f"Disponemos de productos en las siguientes ciudades:\n{productos_por_ciudad_str}"}
 
         elif intent_data.get("intent") == "otro":
-            logging.info("[DEBUG] El mensaje no está relacionado con productos o ciudades.")
             faq_answer = await ChatbotService.search_faq_in_db(question, db)
             if faq_answer:
-                logging.info(f"[DEBUG] Respuesta encontrada en la base de datos: {faq_answer}")
                 return {"respuesta": faq_answer}
 
-        # Fallback a lógica estándar si no se detecta una intención clara
-        logging.info("[DEBUG] No se detectó una intención clara, utilizando lógica estándar.")
-        faq_answer = await ChatbotService.search_faq_in_db(question, db)
-        productos = crud_producto.get_productos_by_cuenta(db, cuenta_id)
-        db_response = "\n".join(
-            [f"{prod['producto']}: Precio {prod['precio']} pesos" for prod in productos]
-        )
-        if faq_answer:
-            db_response = f"{faq_answer}\n\n{db_response}"
-
+        # Respuesta general si no se detecta intención clara
         respuesta = ChatbotService.generate_humanlike_response(
-            question, db_response, ciudades_nombres
+            question,
+            f"Productos por cuenta:\n{productos_cuenta_str}\n\nProductos por ciudad:\n{productos_por_ciudad_str}",
+            [ciudad.nombre for ciudad in ciudades_disponibles],
         )
         return {"respuesta": respuesta}
 
