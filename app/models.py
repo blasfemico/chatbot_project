@@ -59,8 +59,6 @@ class Cuenta(Base):
     id = Column(Integer, primary_key=True)
     nombre = Column(String, unique=True, nullable=False)
     page_id = Column(String, unique=True, nullable=False)
-    aplicacion_id = Column(Integer, ForeignKey("aplicaciones_facebook.id"))
-    aplicacion = relationship("AplicacionFacebook", back_populates="cuentas")
     productos = relationship("CuentaProducto", back_populates="cuenta")
 
 class CuentaProducto(Base):
