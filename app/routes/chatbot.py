@@ -642,8 +642,7 @@ class FacebookService:
     @staticmethod
     async def facebook_webhook(request: Request, db: Session = Depends(get_db)):
         """
-        Procesa eventos de Facebook Messenger, verifica el page_id desde la base de datos,
-        y utiliza la api_key desde el archivo api_keys.json para enviar las respuestas.
+        Procesa eventos de Facebook Messenger sin necesidad de vincular las API Keys con los page_id.
         """
         try:
             # Cargar el payload de la solicitud
@@ -658,31 +657,11 @@ class FacebookService:
             logging.error("El payload no contiene el campo 'entry'.")
             raise HTTPException(status_code=400, detail="El payload no contiene 'entry'.")
 
-        # Iterar por cada entrada en el payload
+        # Procesar cada entrada en el payload
         for entry in data['entry']:
-            # Extraer el page_id de la entrada
-            page_id = entry.get("id")
-            if not page_id:
-                logging.error("No se encontró el 'page_id' en la entrada.")
-                continue
-            logging.info(f"Page ID recibido: {page_id}")
-
-            # Buscar la cuenta asociada en la base de datos usando el page_id
-            cuenta = db.query(Cuenta).filter(Cuenta.page_id == page_id).first()
-            if not cuenta:
-                logging.warning(f"No se encontró una cuenta para el page_id: {page_id}")
-                continue
-            logging.info(f"Cuenta encontrada: {cuenta.nombre} (ID: {cuenta.id})")
-
-            # Cargar las api_keys desde el archivo api_keys.json
-            api_keys = FacebookService.load_api_keys()
-            if page_id not in api_keys:
-                logging.error(f"No se encontró una API Key asociada al page_id: {page_id} en api_keys.json")
-                continue
-
-            # Obtener la API Key correspondiente al page_id
-            api_key = api_keys[page_id]
-            logging.info(f"API Key asociada: {api_key}")
+            # Obtener el page_id para referencia
+            page_id = entry.get("id", "Desconocido")
+            logging.info(f"Evento recibido de page_id: {page_id}")
 
             # Procesar eventos de mensajes
             for message_event in entry.get('messaging', []):
@@ -691,42 +670,13 @@ class FacebookService:
                     message_text = message_event["message"].get("text", "").strip()
                     logging.info(f"Mensaje recibido del usuario {sender_id}: {message_text}")
 
-                    # Obtener datos del usuario desde Facebook
-                    user_profile_url = f"https://graph.facebook.com/{sender_id}?fields=first_name,last_name&access_token={api_key}"
+                    # Enviar una respuesta genérica sin depender de la API Key asociada al page_id
+                    response_text = f"Hola, recibí tu mensaje: '{message_text}' desde la página con ID {page_id}."
                     try:
-                        user_profile_response = requests.get(user_profile_url)
-                        if user_profile_response.status_code == 200:
-                            user_data = user_profile_response.json()
-                            nombre = user_data.get("first_name", "N/A")
-                            apellido = user_data.get("last_name", "N/A")
-                            logging.info(f"Usuario: {nombre} {apellido}")
-                        else:
-                            logging.warning(f"No se pudo obtener perfil de usuario: {user_profile_response.status_code}")
-                            nombre, apellido = "N/A", "N/A"
-                    except Exception as e:
-                        logging.error(f"Error al obtener el perfil del usuario: {e}")
-                        nombre, apellido = "N/A", "N/A"
-
-                    # Actualizar el contexto del chatbot
-                    ChatbotService.user_contexts[cuenta.id] = {
-                        "producto": None,
-                        "cantidad": 1,
-                        "telefono": None,
-                        "nombre": nombre,
-                        "apellido": apellido,
-                        "page_id": page_id,
-                    }
-
-                    # Procesar la pregunta y enviar respuesta
-                    try:
-                        response_data = await ChatbotService.ask_question(
-                            question=message_text, cuenta_id=cuenta.id, db=db
-                        )
-                        response_text = response_data.get("respuesta", "Lo siento, no entendí tu mensaje.")
-                        FacebookService.send_text_message(sender_id, response_text, api_key)
+                        FacebookService.send_text_message(sender_id, response_text)
                         logging.info(f"Respuesta enviada al usuario {sender_id}: {response_text}")
                     except Exception as e:
-                        logging.error(f"Error al procesar el mensaje del usuario {sender_id}: {e}")
+                        logging.error(f"Error al enviar respuesta al usuario {sender_id}: {e}")
 
         return {"status": "ok"}
 
@@ -755,10 +705,18 @@ class FacebookService:
         return response.json()
 
     @staticmethod
-    def send_text_message(recipient_id: str, text: str, api_key: str):
+    def send_text_message(recipient_id: str, text: str):
         """
         Envía un mensaje de texto al usuario en Facebook Messenger.
         """
+        # Cargar una API Key genérica desde api_keys.json
+        api_keys = FacebookService.load_api_keys()
+        if not api_keys:
+            logging.error("No se encontraron API Keys configuradas.")
+            raise HTTPException(status_code=500, detail="No hay API Keys configuradas.")
+        # Usar la primera API Key disponible
+        api_key = list(api_keys.values())[0]
+
         url = "https://graph.facebook.com/v12.0/me/messages"
         headers = {"Content-Type": "application/json"}
         data = {"recipient": {"id": recipient_id}, "message": {"text": text}}
@@ -788,25 +746,41 @@ class FacebookService:
             FacebookService.send_text_message(recipient_id, answer)
 
         # Cargar API keys desde el archivo JSON
+    @staticmethod
     def load_api_keys():
-        if not os.path.exists(API_KEYS_FILE):
-            with open(API_KEYS_FILE, "w") as file:
+        """
+        Carga las API Keys desde el archivo api_keys.json.
+        """
+        if not os.path.exists(FacebookService.API_KEYS_FILE):
+            with open(FacebookService.API_KEYS_FILE, "w") as file:
                 json.dump({}, file)
-        with open(API_KEYS_FILE, "r") as file:
+        with open(FacebookService.API_KEYS_FILE, "r") as file:
             return json.load(file)
 
+    @staticmethod
     def save_api_keys(api_keys):
-        with open(API_KEYS_FILE, "w") as file:
+        """
+        Guarda las API Keys en el archivo api_keys.json.
+        """
+        with open(FacebookService.API_KEYS_FILE, "w") as file:
             json.dump(api_keys, file)
 
 
-@router.get("/apikeys/")
+
+router.get("/apikeys/")
 async def get_api_keys():
+    """
+    Devuelve la lista de API Keys configuradas.
+    """
     api_keys = FacebookService.load_api_keys()
     return [{"name": name, "key": key} for name, key in api_keys.items()]
 
+
 @router.post("/apikeys/")
 async def create_api_key(name: str, key: str):
+    """
+    Crea una nueva API Key en el archivo api_keys.json.
+    """
     api_keys = FacebookService.load_api_keys()
     if name in api_keys:
         raise HTTPException(status_code=400, detail="El nombre ya existe.")
@@ -814,8 +788,12 @@ async def create_api_key(name: str, key: str):
     FacebookService.save_api_keys(api_keys)
     return {"message": "API Key creada con éxito"}
 
+
 @router.delete("/apikeys/{name}")
 async def delete_api_key(name: str):
+    """
+    Elimina una API Key del archivo api_keys.json.
+    """
     api_keys = FacebookService.load_api_keys()
     if name not in api_keys:
         raise HTTPException(status_code=404, detail="API Key no encontrada.")
