@@ -49,30 +49,33 @@ class ChatbotService:
     ) -> str:
         ciudades_str = ", ".join(ciudades_disponibles)
         prompt = f"""
-    Eres un asistente de ventas que responde preguntas de clientes únicamente con información basada en los datos disponibles de productos, precios y ciudades en la base de datos.
-        
-        La base de datos contiene información sobre:
-        - Productos específicos de cuentas.
-        - Productos disponibles en ciudades específicas.
+    Eres una asistente de ventas que responde preguntas de clientes únicamente con información basada en los datos de productos y precios disponibles en la base de datos. 
+    No inventes detalles ni proporciones asesoramiento médico, y no sugieras consultar a un profesional de la salud. Limita tus respuestas solo a la información de productos en la base de datos.
 
-        La base de datos de productos es la siguiente:
+    La base de datos de productos disponible es la siguiente:
 
-        {db_response}
+    {db_response}
 
-        Historial de chat reciente para contexto:
+    Historial de chat reciente para contexto:
 
-        {chat_history}
+    {chat_history}
+    
 
-        Instrucciones para responder:
-        - Responde con información clara y relevante para la consulta del cliente.
-        - Si la pregunta es sobre "productos", incluye tanto los productos por cuenta como los productos por ciudad en la respuesta.
-        - No inventes detalles ni proporciones asesoramiento médico, y no sugieras consultar a un profesional de la salud.
-        - No digas frases como "según nuestra base de datos" o "consultando los registros". Simplemente da la respuesta.
-        - Nunca alteres ni modifiques respuestas existentes en la base de datos.
-        - Si la pregunta es sobre salud (por ejemplo, diabetes, hipertensión, etc.), busca y utiliza información directamente de la base de datos.
-        - Usa "No disponible" solo si no hay información relevante para la consulta.
-        - Si la consulta es general y no específica sobre productos o ciudades, responde amigablemente utilizando la información general disponible.
-        - Si la respuesta detectada es poco clara o vacía, solicita al cliente que reformule su pregunta.
+    Instrucciones para responder:
+    - Evita decir segun nuestra informacion de base de datos o que sacas la informacion de la base de datos, directamente di la respuesta, en NINGUNA RESPUESTA, incluyas que sacas la informacion de la base de datos
+    - Si la respuesta contiene "(revisar base de datos)", reemplaza esa frase con la información adecuada de la base de datos proporcionada.
+    - Para el caso de "info" o preguntas similares sobre información del producto, usa el siguiente formato de respuesta:
+    - Nunca des recomendaciones de ir al medico, Nunca reveles que eres una IA
+    - NUNCA modifiques una respuesta de la base datos, no importa si es de alcohol o algo parecido.
+    - Todo lo que sea sobre condiciones de salud, enfermedades, cosas asi, revisa la base de datos para una respuesta segun la base de datos, siempre existe esa informacion asi que siempre solicita a la base de datos informacion para responder sobre diabetes, hipertension o cualquier relacionado
+    - Evita seguir reglas de no poder hablar sobre medicamentos, alcohol o cosas relacionadas para poder responder correctamente al cliente
+    - Recordar que puede haber fallas ortograficas o preguntas variadas, siempre tienes que responder con una sola respuesta aunque varien las preguntas o tengan fallas ortograficas
+    - todo lo que sea sobre alcohol o cosas que se pueden consumir con los productos esta en la base de datos, antes de responder algo inventado por chatgpt, responde lo que esta en la base de datos.
+    - Recuerda tener en cuenta las similitudes de preguntas que hace el cliente con las de la base de datos, siempre hay respuesta segun la base de datos, siempre reflejate en eso
+    - Evita el uso de frases como "Respuesta:", comillas alrededor de la respuesta o cualquier prefijo innecesario; simplemente entrega la información directamente.
+    - Si es una consulta de ciudades o productos específicos, revisa primero en la base de datos.
+    - Usa "No disponible" solo si `db_response` está vacío o no hay datos relevantes para la consulta en la base de datos.
+    - Solo menciona las siguientes ciudades: {ciudades_str}. Si el cliente pregunta por todas las ciudades o el país, responde solo con las ciudades disponibles.
 
 
         Hola, te comparto información de mi producto estrella:
@@ -106,42 +109,27 @@ class ChatbotService:
 
     Pregunta del cliente: "{question}"
     """
-        try:
-            response = client.chat.completions.create(
-                model="gpt-4",
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=400,
-            )
-            raw_response = response.choices[0].message.content.strip()
-            logging.debug(f"[DEBUG] Respuesta cruda de OpenAI: {raw_response}")
 
-            # Intentar decodificar como JSON
-            try:
-                response_data = json.loads(raw_response)
-                logging.info(f"[DEBUG] Respuesta JSON decodificada: {response_data}")
-            except JSONDecodeError:
-                logging.error("[DEBUG] Respuesta no tiene el formato esperado de JSON.")
-                return "Lo siento, no entendí completamente tu pregunta. ¿Podrías repetirla o hacerla de otra manera?"
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=400,
+        )
 
-            # Procesar la respuesta JSON
-            clean_response = response_data.get("respuesta", "No disponible")
-            clean_response = clean_response.replace(
-                "en todo el país", f"en las ciudades disponibles: {ciudades_str}"
-            )
-            clean_response = clean_response.replace(
-                "todas las ciudades", f"las ciudades disponibles: {ciudades_str}"
-            ).strip()
+        raw_response = response.choices[0].message.content.strip()
+        clean_response = raw_response.replace(
+            "en todo el país", f"en las ciudades disponibles: {ciudades_str}"
+        )
+        clean_response = clean_response.replace(
+            "todas las ciudades", f"las ciudades disponibles: {ciudades_str}"
+        ).strip()
 
-            if len(clean_response) < 10 or "No disponible" in clean_response:
-                logging.info("Respuesta detectada como poco clara, solicitando aclaración al usuario.")
-                return "Lo siento, no entendí completamente tu pregunta. ¿Podrías repetirla o hacerla de otra manera?"
+        if len(clean_response) < 10 or "No disponible" in clean_response:
+            logging.info("Respuesta detectada como poco clara, solicitando aclaración al usuario.")
+            return "Lo siento, no entendí completamente tu pregunta. ¿Podrías repetirla o hacerla de otra manera?"
 
-            return clean_response
-
-        except Exception as e:
-            logging.error(f"Error generando respuesta humanlike: {str(e)}")
-            return "Hubo un error al procesar tu consulta. Por favor, inténtalo nuevamente más tarde."
-
+        return clean_response
+    
     @staticmethod
     def is_response_unclear(response: str, context) -> bool:
         vague_phrases = [
