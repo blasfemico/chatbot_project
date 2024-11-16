@@ -125,38 +125,56 @@ async function deleteCuenta(cuentaId) {
 
 // Funciones para Ciudades
 async function fetchCiudades() {
-    try {
-        const response = await fetch(`${backendUrl}cities/all/`);
-        const data = await response.json();
+  try {
+      const response = await fetch(`${backendUrl}cities/all/`);
+      if (!response.ok) {
+          throw new Error(`HTTP Error: ${response.status}`);
+      }
+      const data = await response.json();
 
-        // Asegúrate de acceder al array dentro del objeto `ciudades`
-        const ciudades = data.ciudades;
-        if (!Array.isArray(ciudades)) {
-            console.error("La respuesta no es una lista:", ciudades);
-            document.getElementById("ciudades-list").innerHTML = "<p>Error al cargar ciudades.</p>";
-            return;
-        }
+      if (!data.ciudades || !Array.isArray(data.ciudades)) {
+          console.error("La respuesta no es una lista:", data.ciudades);
+          document.getElementById("ciudades-list").innerHTML = "<p>Error al cargar ciudades.</p>";
+          return;
+      }
 
-        document.getElementById("ciudades-list").innerHTML = ciudades.map(ciudad => `
-            <p>${ciudad.nombre} 
-                <button onclick="deleteCiudad(${ciudad.id})">Eliminar</button>
-            </p>
-        `).join("");
-    } catch (error) {
-        console.error("Error al cargar ciudades:", error);
-        document.getElementById("ciudades-list").innerHTML = "<p>Error al cargar ciudades.</p>";
-    }
+      document.getElementById("ciudades-list").innerHTML = data.ciudades.map(ciudad => `
+          <p>${ciudad.nombre} 
+              <button onclick="deleteCiudad(${ciudad.id})">Eliminar</button>
+          </p>
+      `).join("");
+  } catch (error) {
+      console.error("Error al cargar ciudades:", error);
+      document.getElementById("ciudades-list").innerHTML = "<p>Error al cargar ciudades.</p>";
+  }
 }
+
 
 
 async function fetchProductosPorCiudad() {
-    const ciudadId = document.getElementById("ciudadId").value;
-    const response = await fetch(`${backendUrl}cities/${ciudadId}/products`);
-    const productos = await response.json();
-    document.getElementById("productos-ciudad-list").innerHTML = productos.map(producto => `
-        <p>${producto.nombre}</p>
-    `).join("");
+  const ciudadId = document.getElementById("ciudadId").value;
+  try {
+      const response = await fetch(`${backendUrl}cities/${ciudadId}/products`);
+      if (!response.ok) {
+          throw new Error(`HTTP Error: ${response.status}`);
+      }
+      const productos = await response.json();
+
+      if (!Array.isArray(productos)) {
+          console.error("La respuesta no es una lista:", productos);
+          document.getElementById("productos-ciudad-list").innerHTML = "<p>Error al cargar productos.</p>";
+          return;
+      }
+
+      document.getElementById("productos-ciudad-list").innerHTML = productos.map(producto => `
+          <p>${producto.nombre}</p>
+      `).join("");
+  } catch (error) {
+      console.error("Error al cargar productos:", error);
+      document.getElementById("productos-ciudad-list").innerHTML = "<p>Error al cargar productos.</p>";
+  }
 }
+
 
 async function addProductoToCiudad(event) {
     event.preventDefault();
@@ -221,10 +239,24 @@ async function createProductos(event) {
 }
 
 async function deleteProducto(productoId) {
-    await fetch(`${backendUrl}products/${productoId}`, { method: 'DELETE' });
-    alert("Producto eliminado con éxito");
-    fetchProductos();
+  if (!productoId) {
+      console.error("Producto ID no definido.");
+      alert("No se puede eliminar un producto sin un ID válido.");
+      return;
+  }
+
+  try {
+      const response = await fetch(`${backendUrl}products/${productoId}`, { method: 'DELETE' });
+      if (!response.ok) {
+          throw new Error(`HTTP Error: ${response.status}`);
+      }
+      alert("Producto eliminado con éxito");
+      fetchProductos();
+  } catch (error) {
+      console.error("Error al eliminar producto:", error);
+  }
 }
+
 
 // Funciones para FAQs
 async function fetchFaqs() {
@@ -349,15 +381,24 @@ async function exportOrdersToExcel(event) {
 
 
 async function askChatbot(event) {
-    event.preventDefault();
-    const question = document.getElementById("chatbotQuestion").value;
-    const cuentaId = parseInt(document.getElementById("chatbotCuentaId").value);
-    const response = await fetch(`${backendUrl}chatbot/ask/?question=${encodeURIComponent(question)}&cuenta_id=${cuentaId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-    });
-    const data = await response.json();
-    document.getElementById("chatbot-response").innerHTML = `
-        <p>Respuesta del Chatbot: ${data.respuesta}</p>
-    `;
+  event.preventDefault();
+  const question = document.getElementById("chatbotQuestion").value;
+  const cuentaId = parseInt(document.getElementById("chatbotCuentaId").value);
+
+  try {
+      const response = await fetch(`${backendUrl}chatbot/ask/?question=${encodeURIComponent(question)}&cuenta_id=${cuentaId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+      });
+      if (!response.ok) {
+          throw new Error(`HTTP Error: ${response.status}`);
+      }
+      const data = await response.json();
+      document.getElementById("chatbot-response").innerHTML = `
+          <p>Respuesta del Chatbot: ${data.respuesta}</p>
+      `;
+  } catch (error) {
+      console.error("Error al interactuar con el chatbot:", error);
+      document.getElementById("chatbot-response").innerHTML = "<p>Error al procesar la solicitud.</p>";
+  }
 }
