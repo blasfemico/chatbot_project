@@ -565,6 +565,7 @@ class FacebookService:
 
 
 class FacebookService:
+    API_KEYS_FILE = "api_keys.json"
     model = SentenceTransformer("all-MiniLM-L6-v2")
     @staticmethod
     async def analyze_order_context_with_chatgpt(chat_history: str) -> dict:
@@ -786,40 +787,40 @@ class FacebookService:
         else:
             FacebookService.send_text_message(recipient_id, answer)
 
-    # Cargar API keys desde el archivo JSON
-def load_api_keys():
-    if not os.path.exists(API_KEYS_FILE):
-        with open(API_KEYS_FILE, "w") as file:
-            json.dump({}, file)
-    with open(API_KEYS_FILE, "r") as file:
-        return json.load(file)
+        # Cargar API keys desde el archivo JSON
+    def load_api_keys():
+        if not os.path.exists(API_KEYS_FILE):
+            with open(API_KEYS_FILE, "w") as file:
+                json.dump({}, file)
+        with open(API_KEYS_FILE, "r") as file:
+            return json.load(file)
 
-def save_api_keys(api_keys):
-    with open(API_KEYS_FILE, "w") as file:
-        json.dump(api_keys, file)
+    def save_api_keys(api_keys):
+        with open(API_KEYS_FILE, "w") as file:
+            json.dump(api_keys, file)
 
 
 @router.get("/apikeys/")
 async def get_api_keys():
-    api_keys = load_api_keys()
+    api_keys = FacebookService.load_api_keys()
     return [{"name": name, "key": key} for name, key in api_keys.items()]
 
 @router.post("/apikeys/")
 async def create_api_key(name: str, key: str):
-    api_keys = load_api_keys()
+    api_keys = FacebookService.load_api_keys()
     if name in api_keys:
         raise HTTPException(status_code=400, detail="El nombre ya existe.")
     api_keys[name] = key
-    save_api_keys(api_keys)
+    FacebookService.save_api_keys(api_keys)
     return {"message": "API Key creada con éxito"}
 
 @router.delete("/apikeys/{name}")
 async def delete_api_key(name: str):
-    api_keys = load_api_keys()
+    api_keys = FacebookService.load_api_keys()
     if name not in api_keys:
         raise HTTPException(status_code=404, detail="API Key no encontrada.")
     del api_keys[name]
-    save_api_keys(api_keys)
+    FacebookService.save_api_keys(api_keys)
     return {"message": "API Key eliminada con éxito"}
 
 @router.post("/chatbot/ask/")
