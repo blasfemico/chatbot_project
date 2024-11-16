@@ -347,9 +347,9 @@ class ChatbotService:
             logging.info("[DEBUG] El mensaje no está relacionado con productos o ciudades.")
             faq_answer = await ChatbotService.search_faq_in_db(question, db)
             if faq_answer:
+                logging.info(f"[DEBUG] Respuesta encontrada en la base de datos: {faq_answer}")
                 return {"respuesta": faq_answer}
-
-            
+                    
 
         # Fallback a lógica estándar si no se detecta una intención clara
         logging.info("[DEBUG] No se detectó una intención clara, utilizando lógica estándar.")
