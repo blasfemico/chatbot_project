@@ -27,13 +27,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Incluye los routers existentes
+
 app.include_router(chatbot.router, tags=["Chatbot"])
 app.include_router(orders.router, tags=["Orders"])
 app.include_router(account_product.router, tags=["Account Product"])
 app.include_router(cities.router, tags=["Cities"])
 
-# Monta la carpeta 'frontend' como archivos estáticos
+
 app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
 
 if __name__ == "__main__":

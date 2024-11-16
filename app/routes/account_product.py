@@ -72,4 +72,3 @@ async def get_all_accounts(skip: int = 0, limit: int = 10, db: Session = Depends
     Obtiene todas las cuentas existentes con paginación.
     """
     return crud.CRUDCuenta().get_all_cuentas(db=db, skip=skip, limit=limit)
-

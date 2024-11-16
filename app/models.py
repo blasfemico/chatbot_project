@@ -83,4 +83,3 @@ class LastProcessedMessage(Base):
     message_text = Column(String)
     intent = Column(String, default=None) 
     producto = Column(String, nullable=True) 
-
