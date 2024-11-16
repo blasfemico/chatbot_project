@@ -1,27 +1,30 @@
 import os
+import json
 from dotenv import load_dotenv
-from pydantic import Field
-from pydantic_settings import BaseSettings
-
 
 load_dotenv()
 
+class Config:
+    def __init__(self):
+        self.DATABASE_URL = os.getenv("DATABASE_URL")
+        self.FACEBOOK_GRAPH_API_URL = "https://graph.facebook.com/v12.0"
+        self.OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+        self.DEBUG_MODE = os.getenv("DEBUG_MODE", "True").lower() in ("true", "1")
+        self.PROJECT_NAME = "Chatbot Project"
 
-class Settings(BaseSettings):
+        # Cargar las API keys desde el archivo .env
+        api_keys = os.getenv("API_KEYS")
+        if api_keys:
+            try:
+                self.API_KEYS = json.loads(api_keys)
+            except json.JSONDecodeError:
+                raise ValueError("Formato inválido para API_KEYS en el archivo .env.")
+        else:
+            self.API_KEYS = {}
 
-    DATABASE_URL: str = Field(..., env="DATABASE_URL")
-
-    FACEBOOK_GRAPH_API_URL: str = Field(default="https://graph.facebook.com/v12.0")
-    FACEBOOK_PAGE_ACCESS_TOKEN: str = Field(..., env="FACEBOOK_PAGE_ACCESS_TOKEN")
-
-    OPENAI_API_KEY: str = Field(..., env="OPENAI_API_KEY")
-
-    PROJECT_NAME: str = Field(default="Chatbot Project")
-    DEBUG_MODE: bool = Field(default=True, env="DEBUG_MODE")
-
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
+    def get_api_key(self, page_name: str) -> str:
+        return self.API_KEYS.get(page_name, None)
 
 
-settings = Settings()
+# Instancia global
+config = Config()
