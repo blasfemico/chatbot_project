@@ -16,8 +16,6 @@ async def create_account(account_data: CuentaCreate, db: Session = Depends(get_d
     db.refresh(cuenta)
     return {"message": "Cuenta creada con éxito", "id": cuenta.id}
 
-
-
 @router.get(
     "/accounts/{account_id}/products",
     response_model=List[schemas.ProductoCuentaResponse],

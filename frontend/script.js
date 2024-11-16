@@ -124,12 +124,13 @@ async function createCuenta(event) {
     const nombre = document.getElementById("nombreCuenta").value;
     await fetch(`${backendUrl}accounts/`, {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ page_id: pageid, nombre })
     });
     alert("Cuenta creada con éxito");
     fetchCuentas();
 }
+
 
 async function deleteCuenta(cuentaId) {
     await fetch(`${backendUrl}accounts/${cuentaId}/delete`, { method: 'DELETE' })
