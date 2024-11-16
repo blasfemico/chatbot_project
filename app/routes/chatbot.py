@@ -50,30 +50,29 @@ class ChatbotService:
         ciudades_str = ", ".join(ciudades_disponibles)
         prompt = f"""
     Eres un asistente de ventas que responde preguntas de clientes únicamente con información basada en los datos disponibles de productos, precios y ciudades en la base de datos.
-    
-    La base de datos contiene información sobre:
-    - Productos específicos de cuentas.
-    - Productos disponibles en ciudades específicas.
+        
+        La base de datos contiene información sobre:
+        - Productos específicos de cuentas.
+        - Productos disponibles en ciudades específicas.
 
-    La base de datos de productos es la siguiente:
+        La base de datos de productos es la siguiente:
 
-    {db_response}
+        {db_response}
 
-    Historial de chat reciente para contexto:
+        Historial de chat reciente para contexto:
 
-    {chat_history}
+        {chat_history}
 
-    Instrucciones para responder:
-    - Responde con información clara y relevante para la consulta del cliente.
-    - Si la pregunta es sobre "productos", incluye tanto los productos por cuenta como los productos por ciudad en la respuesta.
-    - No inventes detalles ni proporciones asesoramiento médico, y no sugieras consultar a un profesional de la salud.
-    - No digas frases como "según nuestra base de datos" o "consultando los registros". Simplemente da la respuesta.
-    - Nunca alteres ni modifiques respuestas existentes en la base de datos.
-    - Si la pregunta es sobre salud (por ejemplo, diabetes, hipertensión, etc.), busca y utiliza información directamente de la base de datos, ya que siempre hay una respuesta para estos casos.
-    - No incluyas frases como "Respuesta:", ni uses comillas alrededor de la respuesta.
-    - Usa "No disponible" solo si no hay información relevante para la consulta.
-    - Si la consulta es general y no específica sobre productos o ciudades, responde amigablemente utilizando la información general disponible.
-    - Si la respuesta detectada es poco clara o vacía, solicita al cliente que reformule su pregunta.
+        Instrucciones para responder:
+        - Responde con información clara y relevante para la consulta del cliente.
+        - Si la pregunta es sobre "productos", incluye tanto los productos por cuenta como los productos por ciudad en la respuesta.
+        - No inventes detalles ni proporciones asesoramiento médico, y no sugieras consultar a un profesional de la salud.
+        - No digas frases como "según nuestra base de datos" o "consultando los registros". Simplemente da la respuesta.
+        - Nunca alteres ni modifiques respuestas existentes en la base de datos.
+        - Si la pregunta es sobre salud (por ejemplo, diabetes, hipertensión, etc.), busca y utiliza información directamente de la base de datos.
+        - Usa "No disponible" solo si no hay información relevante para la consulta.
+        - Si la consulta es general y no específica sobre productos o ciudades, responde amigablemente utilizando la información general disponible.
+        - Si la respuesta detectada es poco clara o vacía, solicita al cliente que reformule su pregunta.
 
 
         Hola, te comparto información de mi producto estrella:
@@ -114,6 +113,12 @@ class ChatbotService:
                 max_tokens=400,
             )
             raw_response = response.choices[0].message.content.strip()
+            logging.debug(f"[DEBUG] Respuesta cruda de OpenAI: {raw_response}")
+
+            if not raw_response.startswith("{") or not raw_response.endswith("}"):
+                logging.error("[DEBUG] Respuesta no tiene el formato esperado de JSON.")
+                return "Lo siento, no entendí completamente tu pregunta. ¿Podrías repetirla o hacerla de otra manera?"
+
             clean_response = raw_response.replace(
                 "en todo el país", f"en las ciudades disponibles: {ciudades_str}"
             )
@@ -131,7 +136,6 @@ class ChatbotService:
             logging.error(f"Error generando respuesta humanlike: {str(e)}")
             return "Hubo un error al procesar tu consulta. Por favor, inténtalo nuevamente más tarde."
 
-    
     @staticmethod
     def is_response_unclear(response: str, context) -> bool:
         vague_phrases = [
@@ -313,13 +317,25 @@ class ChatbotService:
             response = client.chat.completions.create(
                 model="gpt-4",
                 messages=[{"role": "user", "content": intent_prompt}],
-                max_tokens=100,
+                max_tokens=200,
             )
             raw_response = response.choices[0].message.content.strip()
+            logging.debug(f"[DEBUG] Respuesta cruda de OpenAI: {raw_response}")
+
+            if not raw_response.startswith("{") or not raw_response.endswith("}"):
+                logging.error("[DEBUG] Respuesta no tiene el formato esperado de JSON.")
+                return {"intent": "otro"}
+
             intent_data = json.loads(raw_response)
             logging.info(f"[DEBUG] Intención detectada: {intent_data}")
-        except (JSONDecodeError, Exception) as e:
-            logging.error(f"[DEBUG] Error al identificar intención: {str(e)}")
+
+        except JSONDecodeError as e:
+            logging.error(f"[DEBUG] Error al decodificar JSON: {str(e)}")
+            logging.error(f"[DEBUG] Respuesta cruda: {raw_response}")
+            intent_data = {"intent": "otro"}
+
+        except Exception as e:
+            logging.error(f"[DEBUG] Error inesperado al procesar la respuesta de OpenAI: {str(e)}")
             intent_data = {"intent": "otro"}
 
         # Procesar la respuesta según la intención detectada
