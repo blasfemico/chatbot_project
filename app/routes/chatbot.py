@@ -221,25 +221,35 @@ class ChatbotService:
             }
 
         context = ChatbotService.user_contexts[cuenta_id]
-        logging.info(f"Contexto inicial para cuenta_id {cuenta_id}: {context}")
+        logging.info(f"[DEBUG] Contexto inicial para cuenta_id {cuenta_id}: {context}")
 
         # Intentar crear la orden si se solicita explícitamente
         if hacer_order:
             if not context["telefono"]:
+                logging.warning(f"[DEBUG] Teléfono faltante en el contexto: {context}")
                 return {"respuesta": "Por favor, proporcione su número de teléfono para completar la orden."}
             if not context["nombre"] or not context["apellido"]:
+                logging.warning(f"[DEBUG] Nombre o apellido faltantes en el contexto: {context}")
                 return {"respuesta": "Por favor, proporcione su nombre y apellido para completar la orden."}
             return await ChatbotService.create_order_from_context(cuenta_id, db)
 
         # Verificar y cargar embeddings si no están cargados
         if not ChatbotService.product_embeddings:
-            logging.info("Cargando embeddings de productos...")
+            logging.info("[DEBUG] Cargando embeddings de productos...")
             ChatbotService.load_product_embeddings(db)
 
         # Extraer información del mensaje
-        producto, cantidad = ChatbotService.extract_product_and_quantity(question)
-        phone_number = ChatbotService.extract_phone_number(question)
+        try:
+            producto, cantidad = ChatbotService.extract_product_and_quantity(question)
+            logging.info(f"[DEBUG] Producto detectado: {producto}, Cantidad detectada: {cantidad}")
+        except Exception as e:
+            logging.error(f"[DEBUG] Error al extraer producto y cantidad: {str(e)}")
+            producto, cantidad = None, None
 
+        phone_number = ChatbotService.extract_phone_number(question)
+        logging.info(f"[DEBUG] Teléfono detectado: {phone_number}")
+
+        # Actualizar el contexto solo si hay datos válidos
         if producto:
             context["producto"] = producto
         if cantidad is not None:
@@ -247,33 +257,38 @@ class ChatbotService:
         if phone_number:
             context["telefono"] = phone_number
 
-        logging.info(f"Contexto actualizado para cuenta_id {cuenta_id}: {context}")
+        logging.info(f"[DEBUG] Contexto actualizado para cuenta_id {cuenta_id}: {context}")
 
         # Verificar si todos los datos necesarios para una orden están presentes
-        if context["producto"] and context["cantidad"] and context["telefono"] and context["nombre"] and context["apellido"]:
-            logging.info("Datos completos para crear la orden.")
+        if context.get("producto") and context.get("cantidad") and context.get("telefono") and context.get("nombre") and context.get("apellido"):
+            logging.info("[DEBUG] Datos completos para crear la orden. Intentando crear...")
             context["intencion_detectada"] = "crear_orden"
             return await ChatbotService.ask_question(question, cuenta_id, db, hacer_order=True)
 
-        # Cargar ciudades y productos disponibles
-        ciudades_disponibles = CRUDCiudad.get_all_cities(db)
-        ciudades_nombres = [ciudad.nombre for ciudad in ciudades_disponibles]
+        # Manejar ciudades y productos disponibles
+        try:
+            ciudades_disponibles = CRUDCiudad.get_all_cities(db)
+            ciudades_nombres = [ciudad.nombre for ciudad in ciudades_disponibles]
 
-        productos_por_ciudad = {}
-        for ciudad in ciudades_disponibles:
-            productos = (
-                db.query(Producto)
-                .join(ProductoCiudad)
-                .filter(ProductoCiudad.ciudad_id == ciudad.id)
-                .all()
+            productos_por_ciudad = {}
+            for ciudad in ciudades_disponibles:
+                productos = (
+                    db.query(Producto)
+                    .join(ProductoCiudad)
+                    .filter(ProductoCiudad.ciudad_id == ciudad.id)
+                    .all()
+                )
+                productos_nombres = [producto.nombre for producto in productos]
+                if productos_nombres:
+                    productos_por_ciudad[ciudad.nombre] = productos_nombres
+
+            productos_por_ciudad_str = "\n".join(
+                [f"{ciudad}: {', '.join(productos)}" for ciudad, productos in productos_por_ciudad.items()]
             )
-            productos_nombres = [producto.nombre for producto in productos]
-            if productos_nombres:
-                productos_por_ciudad[ciudad.nombre] = productos_nombres
-
-        productos_por_ciudad_str = "\n".join(
-            [f"{ciudad}: {', '.join(productos)}" for ciudad, productos in productos_por_ciudad.items()]
-        )
+        except Exception as e:
+            logging.error(f"[DEBUG] Error al cargar productos por ciudad: {str(e)}")
+            productos_por_ciudad_str = ""
+            ciudades_nombres = []
 
         # Prompt para identificar intención
         intent_prompt = f"""
@@ -300,16 +315,15 @@ class ChatbotService:
             )
             raw_response = response.choices[0].message.content.strip()
             intent_data = json.loads(raw_response)
+            logging.info(f"[DEBUG] Intención detectada: {intent_data}")
         except (JSONDecodeError, Exception) as e:
-            logging.error(f"Error al identificar intención: {str(e)}")
+            logging.error(f"[DEBUG] Error al identificar intención: {str(e)}")
             intent_data = {"intent": "otro"}
 
         # Procesar la respuesta según la intención detectada
         if intent_data.get("intent") == "listar_productos":
-            context["intencion_detectada"] = "listar_productos"
             productos = crud_producto.get_productos_by_cuenta(db, cuenta_id)
             db_response = "\n".join([f"{prod['producto']}: Precio {prod['precio']} pesos" for prod in productos])
-            context["intencion_detectada"] = None
             return {"respuesta": db_response}
 
         elif intent_data.get("intent") == "productos_ciudad" and intent_data.get("ciudad"):
@@ -323,28 +337,22 @@ class ChatbotService:
                     .all()
                 )
                 productos_nombres = [producto.nombre for producto in productos]
-                db_response = (
-                    f"Los productos disponibles en {ciudad_nombre} son: {', '.join(productos_nombres)}."
-                    if productos_nombres
-                    else f"No hay productos en {ciudad_nombre}."
-                )
-            else:
-                db_response = f"No se encontró información para la ciudad {ciudad_nombre}."
-            return {"respuesta": db_response}
+                return {"respuesta": f"Los productos disponibles en {ciudad_nombre} son: {', '.join(productos_nombres)}."}
+            return {"respuesta": f"No hay información sobre la ciudad {ciudad_nombre}."}
 
         elif intent_data.get("intent") == "listar_ciudades":
-            db_response = f"Disponemos de productos en las siguientes ciudades:\n{productos_por_ciudad_str}."
-            return {"respuesta": db_response}
+            return {"respuesta": f"Disponemos de productos en las siguientes ciudades:\n{productos_por_ciudad_str}."}
 
         elif intent_data.get("intent") == "otro":
-            logging.info("El mensaje no está relacionado con productos o ciudades, manejando como consulta general.")
+            logging.info("[DEBUG] El mensaje no está relacionado con productos o ciudades.")
             faq_answer = await ChatbotService.search_faq_in_db(question, db)
             if faq_answer:
                 return {"respuesta": faq_answer}
 
-            return {"respuesta": "No estoy seguro de cómo ayudarte con eso. ¿Podrías hacerme otra pregunta más específica?"}
+            return {"respuesta": "No estoy seguro de cómo ayudarte. ¿Podrías preguntar de otra forma?"}
 
         # Fallback a lógica estándar si no se detecta una intención clara
+        logging.info("[DEBUG] No se detectó una intención clara, utilizando lógica estándar.")
         faq_answer = await ChatbotService.search_faq_in_db(question, db)
         productos = crud_producto.get_productos_by_cuenta(db, cuenta_id)
         db_response = "\n".join(
@@ -357,6 +365,7 @@ class ChatbotService:
             question, db_response, ciudades_nombres
         )
         return {"respuesta": respuesta}
+
 
 
 
