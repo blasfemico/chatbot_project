@@ -642,7 +642,7 @@ class FacebookService:
     @staticmethod
     async def facebook_webhook(request: Request, db: Session = Depends(get_db)):
         """
-        Procesa eventos de Facebook Messenger sin necesidad de vincular las API Keys con los page_id.
+        Procesa eventos de Facebook Messenger y pasa los mensajes al flujo correspondiente.
         """
         try:
             # Cargar el payload de la solicitud
@@ -652,33 +652,36 @@ class FacebookService:
             logging.error("JSON inválido recibido en el webhook.")
             raise HTTPException(status_code=400, detail="JSON inválido")
 
-        # Verificar si el payload contiene entradas
         if 'entry' not in data:
             logging.error("El payload no contiene el campo 'entry'.")
             raise HTTPException(status_code=400, detail="El payload no contiene 'entry'.")
 
-        # Procesar cada entrada en el payload
         for entry in data['entry']:
-            # Obtener el page_id para referencia
-            page_id = entry.get("id", "Desconocido")
-            logging.info(f"Evento recibido de page_id: {page_id}")
-
-            # Procesar eventos de mensajes
             for message_event in entry.get('messaging', []):
                 if 'message' in message_event and not message_event.get('message', {}).get('is_echo'):
                     sender_id = message_event['sender']['id']
                     message_text = message_event["message"].get("text", "").strip()
                     logging.info(f"Mensaje recibido del usuario {sender_id}: {message_text}")
 
-                    # Enviar una respuesta genérica sin depender de la API Key asociada al page_id
-                    response_text = f"Hola, recibí tu mensaje: '{message_text}' desde la página con ID {page_id}."
-                    try:
-                        FacebookService.send_text_message(sender_id, response_text)
-                        logging.info(f"Respuesta enviada al usuario {sender_id}: {response_text}")
-                    except Exception as e:
-                        logging.error(f"Error al enviar respuesta al usuario {sender_id}: {e}")
+                    # Obtener la cuenta asociada si es necesario
+                    cuenta = db.query(Cuenta).filter(Cuenta.page_id == entry.get("id")).first()
+                    cuenta_id = cuenta.id if cuenta else None
 
+                    if cuenta_id:
+                        try:
+                            # Pasar el mensaje al flujo del chatbot
+                            response_data = await ChatbotService.ask_question(
+                                question=message_text, cuenta_id=cuenta_id, db=db
+                            )
+                            response_text = response_data.get("respuesta", "No entendí tu mensaje.")
+                            FacebookService.send_text_message(sender_id, response_text)
+                            logging.info(f"Respuesta enviada al usuario {sender_id}: {response_text}")
+                        except Exception as e:
+                            logging.error(f"Error al procesar el mensaje: {e}")
+                    else:
+                        logging.warning(f"No se encontró cuenta para page_id: {entry.get('id')}")
         return {"status": "ok"}
+
 
 
 
@@ -767,13 +770,15 @@ class FacebookService:
 
 
 
-router.get("/apikeys/")
+@router.get("/apikeys/", response_model=List[dict])
 async def get_api_keys():
     """
     Devuelve la lista de API Keys configuradas.
     """
     api_keys = FacebookService.load_api_keys()
+    # Asegurarte de devolver una lista
     return [{"name": name, "key": key} for name, key in api_keys.items()]
+
 
 
 @router.post("/apikeys/")

@@ -151,7 +151,7 @@ async function deleteCuenta(cuentaId) {
 // Funciones para Ciudades
 async function fetchCiudades() {
     try {
-        const response = await fetch(`${backendUrl}cities/all`);
+        const response = await fetch(`${backendUrl}cities/all/`);
         const data = await response.json();
 
         // Asegúrate de acceder al array dentro del objeto `ciudades`
@@ -417,12 +417,18 @@ async function askChatbot(event) {
 async function fetchApiKeys() {
     const response = await fetch(`${backendUrl}apikeys/`);
     const apiKeys = await response.json();
+    if (!Array.isArray(apiKeys)) {
+        console.error("La respuesta no es una lista:", apiKeys);
+        document.getElementById("apikeys-list").innerHTML = "<p>Error al cargar las API Keys.</p>";
+        return;
+    }
     document.getElementById("apikeys-list").innerHTML = apiKeys.map(key => `
         <p>${key.name}: ${key.key}
             <button onclick="deleteApiKey('${key.name}')">Eliminar</button>
         </p>
     `).join("");
 }
+
 
 async function createApiKey(event) {
     event.preventDefault();
