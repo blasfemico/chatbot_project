@@ -205,6 +205,9 @@ class ChatbotService:
 
     @staticmethod
     async def ask_question(question: str, cuenta_id: int, db: Session, hacer_order=False) -> dict:
+        """
+        Maneja el flujo de preguntas y respuestas del chatbot, incluyendo la creación de órdenes.
+        """
         # Inicializar el contexto si no existe para la cuenta
         if cuenta_id not in ChatbotService.user_contexts:
             ChatbotService.user_contexts[cuenta_id] = {
@@ -230,7 +233,7 @@ class ChatbotService:
 
         # Verificar y cargar embeddings si no están cargados
         if not ChatbotService.product_embeddings:
-            logging.info("Cargando embeddings de productos por primera vez...")
+            logging.info("Cargando embeddings de productos...")
             ChatbotService.load_product_embeddings(db)
 
         # Extraer información del mensaje
@@ -348,6 +351,7 @@ class ChatbotService:
 
 
 
+
         
     
 
@@ -387,7 +391,6 @@ class ChatbotService:
             return {"respuesta": "Hubo un error técnico al crear tu orden. Por favor, inténtalo más tarde."}
 
 
-
     @staticmethod
     def extract_phone_number(text: str):
         phone_match = re.search(r"\+?\d{10,15}", text)
@@ -399,34 +402,43 @@ class ChatbotService:
 
     @staticmethod
     def extract_product_and_quantity(text: str) -> tuple:
-        if not ChatbotService.product_embeddings:
-            logging.info("Intentando cargar embeddings de productos dinámicamente...")
-            try:
-                ChatbotService.load_product_embeddings(get_db())
-            except Exception as e:
-                logging.error(f"No se pudieron cargar los embeddings: {str(e)}")
-                return None, None
+        """
+        Extrae el producto y la cantidad mencionados en el texto usando embeddings para identificar productos.
+        """
+        # Detectar números en el texto
+        cantidad_match = re.findall(r"\b(\d+)\b", text)
+        cantidad = None
 
-        # Extraer el número telefónico primero
+        # Asegurarse de no confundir números con el teléfono
         phone_number = ChatbotService.extract_phone_number(text)
-        sanitized_text = text.replace(phone_number, "") if phone_number else text
+        if phone_number:
+            cantidad_match = [num for num in cantidad_match if num not in phone_number]
 
-        # Buscar cantidad
-        cantidad_match = re.search(r"\b(\d+)\b", sanitized_text)
-        cantidad = int(cantidad_match.group(1)) if cantidad_match else 1
+        if cantidad_match:
+            # Utilizar la cantidad más relevante (asumimos la primera como cantidad de producto)
+            cantidad = int(cantidad_match[0])
+
+        # Verificar si los embeddings están cargados
+        if not ChatbotService.product_embeddings:
+            logging.error("Embeddings de productos no están cargados.")
+            raise ValueError("Embeddings no cargados. Asegúrate de cargar los embeddings antes de llamar a esta función.")
 
         # Obtener el embedding del texto ingresado
-        text_embedding = ChatbotService.model.encode(sanitized_text, convert_to_tensor=True)
+        text_embedding = ChatbotService.model.encode(text, convert_to_tensor=True)
 
         try:
+            # Convertir los embeddings de productos en tensores
             product_embeddings_tensor = torch.stack(
                 [torch.tensor(embedding) for embedding in ChatbotService.product_embeddings.values()]
             )
 
+            # Calcular la similitud coseno entre el texto y los productos
             similarities = util.cos_sim(text_embedding, product_embeddings_tensor)
+
+            # Obtener el índice y el valor de la similitud más alta
             max_similarity_index = similarities.argmax().item()
             max_similarity_value = similarities[0, max_similarity_index].item()
-            threshold = 0.5
+            threshold = 0.5  # Umbral para considerar un producto como coincidencia
 
             producto = None
             if max_similarity_value >= threshold:
@@ -437,7 +449,8 @@ class ChatbotService:
 
         except Exception as e:
             logging.error(f"Error al procesar embeddings: {str(e)}")
-            return None, None
+            raise ValueError("Error en los embeddings.") from e
+
 
 
 
@@ -639,47 +652,61 @@ class FacebookService:
 
     
     
-    @staticmethod
+    staticmethod
     async def facebook_webhook(request: Request, db: Session = Depends(get_db)):
         """
         Procesa eventos de Facebook Messenger y pasa los mensajes al flujo correspondiente.
         """
         try:
-            # Cargar el payload de la solicitud
             data = await request.json()
             logging.info(f"Payload recibido: {data}")
-        except JSONDecodeError:
-            logging.error("JSON inválido recibido en el webhook.")
-            raise HTTPException(status_code=400, detail="JSON inválido")
+        except Exception as e:
+            logging.error(f"Error procesando JSON del webhook: {str(e)}")
+            raise HTTPException(status_code=400, detail="Error en el payload recibido")
 
-        if 'entry' not in data:
-            logging.error("El payload no contiene el campo 'entry'.")
-            raise HTTPException(status_code=400, detail="El payload no contiene 'entry'.")
+        if "entry" not in data:
+            raise HTTPException(status_code=400, detail="Entrada inválida en el payload")
 
-        for entry in data['entry']:
-            for message_event in entry.get('messaging', []):
-                if 'message' in message_event and not message_event.get('message', {}).get('is_echo'):
-                    sender_id = message_event['sender']['id']
-                    message_text = message_event["message"].get("text", "").strip()
-                    logging.info(f"Mensaje recibido del usuario {sender_id}: {message_text}")
+        for entry in data["entry"]:
+            page_id = entry.get("id")
+            cuenta = db.query(Cuenta).filter(Cuenta.page_id == page_id).first()
 
-                    # Obtener la cuenta asociada si es necesario
-                    cuenta = db.query(Cuenta).filter(Cuenta.page_id == entry.get("id")).first()
-                    cuenta_id = cuenta.id if cuenta else None
+            if not cuenta:
+                logging.warning(f"No se encontró ninguna cuenta para page_id {page_id}")
+                continue
 
-                    if cuenta_id:
-                        try:
-                            # Pasar el mensaje al flujo del chatbot
-                            response_data = await ChatbotService.ask_question(
-                                question=message_text, cuenta_id=cuenta_id, db=db
-                            )
-                            response_text = response_data.get("respuesta", "No entendí tu mensaje.")
-                            FacebookService.send_text_message(sender_id, response_text)
-                            logging.info(f"Respuesta enviada al usuario {sender_id}: {response_text}")
-                        except Exception as e:
-                            logging.error(f"Error al procesar el mensaje: {e}")
-                    else:
-                        logging.warning(f"No se encontró cuenta para page_id: {entry.get('id')}")
+            cuenta_id = cuenta.id
+            for event in entry.get("messaging", []):
+                if "message" in event and not event.get("message", {}).get("is_echo"):
+                    sender_id = event["sender"]["id"]
+                    message_text = event["message"].get("text", "").strip()
+
+                    # Actualizar contexto inicial para la cuenta
+                    if cuenta_id not in ChatbotService.user_contexts:
+                        ChatbotService.user_contexts[cuenta_id] = {
+                            "producto": None,
+                            "cantidad": None,
+                            "telefono": None,
+                            "nombre": None,
+                            "apellido": None,
+                            "ad_id": None,
+                            "intencion_detectada": None,
+                        }
+
+                    # Procesar el mensaje recibido
+                    try:
+                        response_data = await ChatbotService.ask_question(
+                            question=message_text,
+                            cuenta_id=cuenta_id,
+                            db=db,
+                        )
+                        response_text = response_data.get("respuesta", "Lo siento, no entendí tu mensaje.")
+                        logging.info(f"Respuesta enviada al usuario {sender_id}: {response_text}")
+
+                        # Enviar respuesta al usuario
+                        FacebookService.send_text_message(sender_id, response_text)
+                    except Exception as e:
+                        logging.error(f"Error procesando el mensaje: {str(e)}")
         return {"status": "ok"}
 
 
