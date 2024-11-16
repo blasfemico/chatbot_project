@@ -447,7 +447,7 @@ class ChatbotService:
         """
         Carga los embeddings de productos desde la base de datos.
         """
-        productos = db.query(Producto).all()
+        productos = db.query(Producto).all()  # Aquí usamos la sesión directamente
         nombres_productos = [producto.nombre for producto in productos]
 
         if not nombres_productos:
@@ -457,7 +457,6 @@ class ChatbotService:
         embeddings = ChatbotService.model.encode(nombres_productos, convert_to_tensor=True)
         ChatbotService.product_embeddings = dict(zip(nombres_productos, embeddings))
         logging.info(f"Embeddings de productos cargados: {list(ChatbotService.product_embeddings.keys())}")
-
 
 
     @staticmethod

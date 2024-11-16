@@ -240,11 +240,22 @@ async function fetchFaqs() {
 async function createFaqsBulk(event) {
     event.preventDefault();
 
-    const faqsData = document.getElementById("faqsData").value;
+    const faqsData = document.getElementById("faqsData").value.trim();
+    
+    // Divide las líneas y asegúrate de que terminen con un ";"
     const faqs = faqsData.split('\n').map(line => {
+        if (!line.includes(',')) {
+            alert("Cada línea debe tener el formato 'pregunta,respuesta'.");
+            return null;
+        }
         const [question, answer] = line.split(',').map(item => item.trim());
         return { question, answer };
-    });
+    }).filter(faq => faq !== null); // Filtra líneas inválidas
+
+    if (faqs.length === 0) {
+        alert("Por favor, revisa el formato de las preguntas y respuestas.");
+        return;
+    }
 
     try {
         const response = await fetch(`${backendUrl}faq/bulk_add/`, {
