@@ -115,11 +115,17 @@ class ChatbotService:
             raw_response = response.choices[0].message.content.strip()
             logging.debug(f"[DEBUG] Respuesta cruda de OpenAI: {raw_response}")
 
-            if not raw_response.startswith("{") or not raw_response.endswith("}"):
+            # Intentar decodificar como JSON
+            try:
+                response_data = json.loads(raw_response)
+                logging.info(f"[DEBUG] Respuesta JSON decodificada: {response_data}")
+            except JSONDecodeError:
                 logging.error("[DEBUG] Respuesta no tiene el formato esperado de JSON.")
                 return "Lo siento, no entendí completamente tu pregunta. ¿Podrías repetirla o hacerla de otra manera?"
 
-            clean_response = raw_response.replace(
+            # Procesar la respuesta JSON
+            clean_response = response_data.get("respuesta", "No disponible")
+            clean_response = clean_response.replace(
                 "en todo el país", f"en las ciudades disponibles: {ciudades_str}"
             )
             clean_response = clean_response.replace(
@@ -322,37 +328,37 @@ class ChatbotService:
             logging.debug(f"[DEBUG] Respuesta cruda de OpenAI: {raw_response}")
 
             # Intentar decodificar como JSON
-            intent_data = json.loads(raw_response)
-            logging.info(f"[DEBUG] Intención detectada: {intent_data}")
+            try:
+                intent_data = json.loads(raw_response)
+                logging.info(f"[DEBUG] Intención detectada: {intent_data}")
+            except JSONDecodeError as e:
+                logging.error(f"[DEBUG] Error al decodificar JSON: {str(e)}")
+                logging.error(f"[DEBUG] Respuesta cruda: {raw_response}")
+                return {"respuesta": "Lo siento, no entendí completamente tu pregunta. ¿Podrías repetirla o hacerla de otra manera?"}
 
-        except JSONDecodeError as e:
-            logging.error(f"[DEBUG] Error al decodificar JSON: {str(e)}")
-            logging.error(f"[DEBUG] Respuesta cruda: {raw_response}")
-            return {"respuesta": "Lo siento, no entendí completamente tu pregunta. ¿Podrías repetirla o hacerla de otra manera?"}
+            # Procesar la respuesta según la intención detectada
+            if intent_data.get("intent") == "productos_cuenta":
+                return {"respuesta": f"Nuestros productos disponibles por cuenta son:\n{productos_cuenta_str}"}
+
+            elif intent_data.get("intent") == "productos_ciudad" and intent_data.get("ciudad"):
+                ciudad_nombre = intent_data["ciudad"]
+                if ciudad_nombre in productos_por_ciudad:
+                    productos_nombres = productos_por_ciudad[ciudad_nombre]
+                    return {"respuesta": f"Los productos disponibles en {ciudad_nombre} son: {', '.join(productos_nombres)}."}
+                else:
+                    return {"respuesta": f"No hay información de productos disponibles en {ciudad_nombre}."}
+
+            elif intent_data.get("intent") == "listar_ciudades":
+                return {"respuesta": f"Disponemos de productos en las siguientes ciudades:\n{productos_por_ciudad_str}"}
+
+            elif intent_data.get("intent") == "otro":
+                faq_answer = await ChatbotService.search_faq_in_db(question, db)
+                if faq_answer:
+                    return {"respuesta": faq_answer}
 
         except Exception as e:
             logging.error(f"[DEBUG] Error inesperado al procesar la respuesta de OpenAI: {str(e)}")
             return {"respuesta": "Hubo un error al procesar tu consulta. Por favor, inténtalo nuevamente más tarde."}
-
-        # Procesar la respuesta según la intención detectada
-        if intent_data.get("intent") == "productos_cuenta":
-            return {"respuesta": f"Nuestros productos disponibles por cuenta son:\n{productos_cuenta_str}"}
-
-        elif intent_data.get("intent") == "productos_ciudad" and intent_data.get("ciudad"):
-            ciudad_nombre = intent_data["ciudad"]
-            if ciudad_nombre in productos_por_ciudad:
-                productos_nombres = productos_por_ciudad[ciudad_nombre]
-                return {"respuesta": f"Los productos disponibles en {ciudad_nombre} son: {', '.join(productos_nombres)}."}
-            else:
-                return {"respuesta": f"No hay información de productos disponibles en {ciudad_nombre}."}
-
-        elif intent_data.get("intent") == "listar_ciudades":
-            return {"respuesta": f"Disponemos de productos en las siguientes ciudades:\n{productos_por_ciudad_str}"}
-
-        elif intent_data.get("intent") == "otro":
-            faq_answer = await ChatbotService.search_faq_in_db(question, db)
-            if faq_answer:
-                return {"respuesta": faq_answer}
 
         # Respuesta general si no se detecta intención clara
         respuesta = ChatbotService.generate_humanlike_response(
