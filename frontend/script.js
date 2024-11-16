@@ -132,10 +132,20 @@ async function createCuenta(event) {
 }
 
 async function deleteCuenta(cuentaId) {
-    await fetch(`${backendUrl}accounts/${cuentaId}`, { method: 'DELETE' });
-    alert("Cuenta eliminada con éxito");
-    fetchCuentas();
+    await fetch(`${backendUrl}accounts/${cuentaId}/delete`, { method: 'DELETE' })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`Error ${response.status}: ${response.statusText}`);
+            }
+            alert("Cuenta eliminada con éxito");
+            fetchCuentas();
+        })
+        .catch(error => {
+            console.error("Error al eliminar la cuenta:", error);
+            alert("No se pudo eliminar la cuenta. Revisa la consola para más detalles.");
+        });
 }
+
 
 // Funciones para Ciudades
 async function fetchCiudades() {

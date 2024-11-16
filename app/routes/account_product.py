@@ -3,22 +3,19 @@ from sqlalchemy.orm import Session
 from app import crud, schemas
 from app.database import get_db
 from typing import List
-
+from app.models import Cuenta
+from app.crud import CuentaCreate
 router = APIRouter()
 
 
-@router.post("/accounts/", response_model=schemas.Cuenta)
-async def create_account(account: schemas.CuentaCreate, db: Session = Depends(get_db)):
-    """Crea una cuenta en la base de datos utilizando el page_id de Facebook."""
-    existing_account = (
-        db.query(crud.Cuenta).filter(crud.Cuenta.page_id == account.page_id).first()
-    )
-    if existing_account:
-        raise HTTPException(
-            status_code=400, detail="Ya existe una cuenta con este page_id."
-        )
+@router.post("/accounts/")
+async def create_account(account_data: CuentaCreate, db: Session = Depends(get_db)):
+    cuenta = Cuenta(nombre=account_data.nombre, page_id=account_data.page_id)
+    db.add(cuenta)
+    db.commit()
+    db.refresh(cuenta)
+    return {"message": "Cuenta creada con éxito", "id": cuenta.id}
 
-    return crud.CRUDCuenta().create_cuenta(db=db, cuenta_data=account)
 
 
 @router.get(
@@ -72,3 +69,12 @@ async def get_all_accounts(skip: int = 0, limit: int = 10, db: Session = Depends
     Obtiene todas las cuentas existentes con paginación.
     """
     return crud.CRUDCuenta().get_all_cuentas(db=db, skip=skip, limit=limit)
+
+@router.delete("/accounts/{account_id}/delete")
+async def delete_account(account_id: int, db: Session = Depends(get_db)):
+    cuenta = db.query(Cuenta).filter(Cuenta.id == account_id).first()
+    if not cuenta:
+        raise HTTPException(status_code=404, detail="Cuenta no encontrada.")
+    db.delete(cuenta)
+    db.commit()
+    return {"message": "Cuenta eliminada con éxito."}

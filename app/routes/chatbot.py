@@ -711,7 +711,7 @@ class FacebookService:
         """
         Enviar un mensaje de texto al usuario de Facebook Messenger.
         """
-        url = f"https://graph.facebook.com/v12.0/me/messages"
+        url = f"{settings.FACEBOOK_GRAPH_API_URL}/me/messages"
         headers = {"Content-Type": "application/json"}
         data = {"recipient": {"id": recipient_id}, "message": {"text": text}}
         params = {"access_token": access_token}
@@ -724,6 +724,7 @@ class FacebookService:
                 detail="Error al enviar el mensaje de texto.",
             )
         return response.json()
+
 
     @staticmethod
     def send_message_or_image(recipient_id: str, answer: str):
@@ -748,7 +749,7 @@ def save_api_keys(api_keys):
     with open(API_KEYS_FILE, "w") as file:
         json.dump(api_keys, file)
 
-        
+
 @router.get("/apikeys/")
 async def get_api_keys():
     api_keys = load_api_keys()
