@@ -91,6 +91,20 @@ async function loadSection(section) {
                 <div id="chatbot-response"></div>
             `;
             break;
+        case "apikeys":
+            content.innerHTML = `
+                <h2>Gestionar API Keys</h2>
+                <button onclick="fetchApiKeys()">Ver API Keys</button>
+                <div id="apikeys-list"></div>
+                <h3>Agregar Nueva API Key</h3>
+                <form onsubmit="createApiKey(event)">
+                    <input type="text" id="nombreApiKey" placeholder="Nombre de la Cuenta" required>
+                    <input type="text" id="apiKeyValue" placeholder="Valor de la API Key" required>
+                    <button type="submit">Agregar API Key</button>
+                </form>
+            `;
+            break;
+            
     }
 }
 
@@ -387,4 +401,33 @@ async function askChatbot(event) {
     document.getElementById("chatbot-response").innerHTML = `
         <p>Respuesta del Chatbot: ${data.respuesta}</p>
     `;
+}
+
+async function fetchApiKeys() {
+    const response = await fetch(`${backendUrl}apikeys/`);
+    const apiKeys = await response.json();
+    document.getElementById("apikeys-list").innerHTML = apiKeys.map(key => `
+        <p>${key.name}: ${key.key}
+            <button onclick="deleteApiKey('${key.name}')">Eliminar</button>
+        </p>
+    `).join("");
+}
+
+async function createApiKey(event) {
+    event.preventDefault();
+    const name = document.getElementById("nombreApiKey").value;
+    const key = document.getElementById("apiKeyValue").value;
+    await fetch(`${backendUrl}apikeys/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, key })
+    });
+    alert("API Key creada con éxito");
+    fetchApiKeys();
+}
+
+async function deleteApiKey(name) {
+    await fetch(`${backendUrl}apikeys/${name}`, { method: 'DELETE' });
+    alert("API Key eliminada con éxito");
+    fetchApiKeys();
 }

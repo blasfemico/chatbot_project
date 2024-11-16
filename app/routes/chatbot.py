@@ -740,41 +740,37 @@ class FacebookService:
 def load_api_keys():
     if not os.path.exists(API_KEYS_FILE):
         with open(API_KEYS_FILE, "w") as file:
-            json.dump({}, file) 
+            json.dump({}, file)
     with open(API_KEYS_FILE, "r") as file:
         return json.load(file)
 
-
-# Guardar API keys en el archivo JSON
 def save_api_keys(api_keys):
     with open(API_KEYS_FILE, "w") as file:
         json.dump(api_keys, file)
 
-@router.post("/facebook/add_api_key/")
-async def add_api_key(account_name: str, api_key: str):
-    """
-    Endpoint para agregar una nueva API key asociada a un nombre de cuenta.
-    """
-    api_keys = load_api_keys()
-
-    if account_name in api_keys:
-        raise HTTPException(
-            status_code=400, detail=f"La cuenta '{account_name}' ya tiene una API key registrada."
-        )
-
-    api_keys[account_name] = api_key
-    save_api_keys(api_keys)
-
-    return {"message": f"API key para '{account_name}' añadida correctamente."}
-
-@router.get("/facebook/get_api_keys/")
+        
+@router.get("/apikeys/")
 async def get_api_keys():
-    """
-    Endpoint para obtener todas las cuentas registradas con sus nombres.
-    """
     api_keys = load_api_keys()
-    return {"registered_accounts": list(api_keys.keys())}
+    return [{"name": name, "key": key} for name, key in api_keys.items()]
 
+@router.post("/apikeys/")
+async def create_api_key(name: str, key: str):
+    api_keys = load_api_keys()
+    if name in api_keys:
+        raise HTTPException(status_code=400, detail="El nombre ya existe.")
+    api_keys[name] = key
+    save_api_keys(api_keys)
+    return {"message": "API Key creada con éxito"}
+
+@router.delete("/apikeys/{name}")
+async def delete_api_key(name: str):
+    api_keys = load_api_keys()
+    if name not in api_keys:
+        raise HTTPException(status_code=404, detail="API Key no encontrada.")
+    del api_keys[name]
+    save_api_keys(api_keys)
+    return {"message": "API Key eliminada con éxito"}
 
 @router.post("/chatbot/ask/")
 async def ask_question(
@@ -816,3 +812,5 @@ async def verify_webhook(request: Request):
         return int(challenge)
     else:
         raise HTTPException(status_code=403, detail="Token de verificación inválido")
+    
+    

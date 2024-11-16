@@ -27,4 +27,4 @@ class Config:
 
 
 # Instancia global
-config = Config()
+settings = Config()
