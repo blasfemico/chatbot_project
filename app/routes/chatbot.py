@@ -330,11 +330,12 @@ class ChatbotService:
                 )
             else:
                 db_response = f"No se encontró información para la ciudad {ciudad_nombre}."
+            return {"respuesta": db_response}
 
         elif intent_data.get("intent") == "listar_ciudades":
             db_response = f"Disponemos de productos en las siguientes ciudades:\n{productos_por_ciudad_str}."
+            return {"respuesta": db_response}
 
-        # Nueva lógica: Manejar mensajes generales no relacionados con productos o ciudades
         elif intent_data.get("intent") == "otro":
             logging.info("El mensaje no está relacionado con productos o ciudades, manejando como consulta general.")
             faq_answer = await ChatbotService.search_faq_in_db(question, db)
@@ -343,20 +344,19 @@ class ChatbotService:
 
             return {"respuesta": "No estoy seguro de cómo ayudarte con eso. ¿Podrías hacerme otra pregunta más específica?"}
 
-        else:
-            faq_answer = await ChatbotService.search_faq_in_db(question, db)
-            productos = crud_producto.get_productos_by_cuenta(db, cuenta_id)
-            db_response = "\n".join(
-                [f"{prod['producto']}: Precio {prod['precio']} pesos" for prod in productos]
-            )
-            if faq_answer:
-                db_response = f"{faq_answer}\n\n{db_response}"
+        # Fallback a lógica estándar si no se detecta una intención clara
+        faq_answer = await ChatbotService.search_faq_in_db(question, db)
+        productos = crud_producto.get_productos_by_cuenta(db, cuenta_id)
+        db_response = "\n".join(
+            [f"{prod['producto']}: Precio {prod['precio']} pesos" for prod in productos]
+        )
+        if faq_answer:
+            db_response = f"{faq_answer}\n\n{db_response}"
 
         respuesta = ChatbotService.generate_humanlike_response(
             question, db_response, ciudades_nombres
         )
         return {"respuesta": respuesta}
-
 
 
 
