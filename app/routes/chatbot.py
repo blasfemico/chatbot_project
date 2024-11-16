@@ -108,7 +108,7 @@ class ChatbotService:
     """
         try:
             response = client.chat.completions.create(
-                model="gpt-4",
+                model="gpt-4o",
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=400,
             )
@@ -305,38 +305,34 @@ class ChatbotService:
 
         La pregunta del cliente es: "{question}"
 
-        Responde en JSON con:
-        - "intent": "productos_cuenta" para productos específicos de la cuenta.
-        - "intent": "productos_ciudad" para productos específicos de una ciudad.
-        - "intent": "listar_ciudades" para listar todas las ciudades.
-        - "intent": "otro" para preguntas no relacionadas.
-        - Incluye "ciudad" solo si aplica.
+        Responde en formato JSON estrictamente con la siguiente estructura:
+        {{
+            "intent": "productos_cuenta" | "productos_ciudad" | "listar_ciudades" | "otro",
+            "ciudad": "<nombre de la ciudad>" (opcional)
+        }}
         """
 
         try:
             response = client.chat.completions.create(
                 model="gpt-4",
                 messages=[{"role": "user", "content": intent_prompt}],
-                max_tokens=200,
+                max_tokens=100,
             )
             raw_response = response.choices[0].message.content.strip()
             logging.debug(f"[DEBUG] Respuesta cruda de OpenAI: {raw_response}")
 
-            if not raw_response.startswith("{") or not raw_response.endswith("}"):
-                logging.error("[DEBUG] Respuesta no tiene el formato esperado de JSON.")
-                return {"intent": "otro"}
-
+            # Intentar decodificar como JSON
             intent_data = json.loads(raw_response)
             logging.info(f"[DEBUG] Intención detectada: {intent_data}")
 
         except JSONDecodeError as e:
             logging.error(f"[DEBUG] Error al decodificar JSON: {str(e)}")
             logging.error(f"[DEBUG] Respuesta cruda: {raw_response}")
-            intent_data = {"intent": "otro"}
+            return {"respuesta": "Lo siento, no entendí completamente tu pregunta. ¿Podrías repetirla o hacerla de otra manera?"}
 
         except Exception as e:
             logging.error(f"[DEBUG] Error inesperado al procesar la respuesta de OpenAI: {str(e)}")
-            intent_data = {"intent": "otro"}
+            return {"respuesta": "Hubo un error al procesar tu consulta. Por favor, inténtalo nuevamente más tarde."}
 
         # Procesar la respuesta según la intención detectada
         if intent_data.get("intent") == "productos_cuenta":
@@ -365,15 +361,6 @@ class ChatbotService:
             [ciudad.nombre for ciudad in ciudades_disponibles],
         )
         return {"respuesta": respuesta}
-
-
-
-
-
-
-        
-    
-
 
     @staticmethod
     async def create_order_from_context(cuenta_id: int, db: Session) -> dict:
