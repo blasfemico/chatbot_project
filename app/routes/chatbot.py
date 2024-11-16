@@ -361,17 +361,16 @@ class ChatbotService:
         context = ChatbotService.user_contexts[cuenta_id]
         logging.info(f"Creando orden con el contexto: {context}")
 
-        ad_id = context.get("ad_id", "N/A")
         order_data = OrderCreate(
             phone=context["telefono"],
             email=None,
             address=None,
             producto=context["producto"],
             cantidad_cajas=context["cantidad"],
-            ad_id=ad_id,
+            ad_id=context.get("ad_id", "N/A"),
         )
-        nombre = context.get("nombre", "N/A")
-        apellido = context.get("apellido", "N/A")
+        nombre = context.get("nombre", "Cliente")
+        apellido = context.get("apellido", "")
 
         try:
             logging.info(f"Llamando a create_order con: order_data={order_data}, nombre={nombre}, apellido={apellido}")
@@ -402,43 +401,31 @@ class ChatbotService:
 
     @staticmethod
     def extract_product_and_quantity(text: str) -> tuple:
-        """
-        Extrae el producto y la cantidad mencionados en el texto usando embeddings para identificar productos.
-        """
-        # Detectar números en el texto
         cantidad_match = re.findall(r"\b(\d+)\b", text)
         cantidad = None
 
-        # Asegurarse de no confundir números con el teléfono
+        # Evitar confusión con números de teléfono
         phone_number = ChatbotService.extract_phone_number(text)
         if phone_number:
             cantidad_match = [num for num in cantidad_match if num not in phone_number]
 
         if cantidad_match:
-            # Utilizar la cantidad más relevante (asumimos la primera como cantidad de producto)
             cantidad = int(cantidad_match[0])
 
-        # Verificar si los embeddings están cargados
         if not ChatbotService.product_embeddings:
-            logging.error("Embeddings de productos no están cargados.")
-            raise ValueError("Embeddings no cargados. Asegúrate de cargar los embeddings antes de llamar a esta función.")
+            logging.warning("Los embeddings de productos no están cargados.")
+            return None, cantidad
 
-        # Obtener el embedding del texto ingresado
         text_embedding = ChatbotService.model.encode(text, convert_to_tensor=True)
 
         try:
-            # Convertir los embeddings de productos en tensores
             product_embeddings_tensor = torch.stack(
                 [torch.tensor(embedding) for embedding in ChatbotService.product_embeddings.values()]
             )
-
-            # Calcular la similitud coseno entre el texto y los productos
             similarities = util.cos_sim(text_embedding, product_embeddings_tensor)
-
-            # Obtener el índice y el valor de la similitud más alta
             max_similarity_index = similarities.argmax().item()
             max_similarity_value = similarities[0, max_similarity_index].item()
-            threshold = 0.5  # Umbral para considerar un producto como coincidencia
+            threshold = 0.5
 
             producto = None
             if max_similarity_value >= threshold:
@@ -449,8 +436,7 @@ class ChatbotService:
 
         except Exception as e:
             logging.error(f"Error al procesar embeddings: {str(e)}")
-            raise ValueError("Error en los embeddings.") from e
-
+            return None, cantidad
 
 
 
@@ -652,11 +638,8 @@ class FacebookService:
 
     
     
-    staticmethod
+    @staticmethod
     async def facebook_webhook(request: Request, db: Session = Depends(get_db)):
-        """
-        Procesa eventos de Facebook Messenger y pasa los mensajes al flujo correspondiente.
-        """
         try:
             data = await request.json()
             logging.info(f"Payload recibido: {data}")
@@ -681,17 +664,14 @@ class FacebookService:
                     sender_id = event["sender"]["id"]
                     message_text = event["message"].get("text", "").strip()
 
-                    # Actualizar contexto inicial para la cuenta
-                    if cuenta_id not in ChatbotService.user_contexts:
-                        ChatbotService.user_contexts[cuenta_id] = {
-                            "producto": None,
-                            "cantidad": None,
-                            "telefono": None,
-                            "nombre": None,
-                            "apellido": None,
-                            "ad_id": None,
-                            "intencion_detectada": None,
-                        }
+                    # Extraer nombre y apellido si no están presentes
+                    if not ChatbotService.user_contexts.get(cuenta_id, {}).get("nombre"):
+                        user_profile = FacebookService.get_user_profile(sender_id)
+                        if user_profile:
+                            ChatbotService.user_contexts.setdefault(cuenta_id, {}).update({
+                                "nombre": user_profile.get("first_name"),
+                                "apellido": user_profile.get("last_name"),
+                            })
 
                     # Procesar el mensaje recibido
                     try:
@@ -709,6 +689,19 @@ class FacebookService:
                         logging.error(f"Error procesando el mensaje: {str(e)}")
         return {"status": "ok"}
 
+
+    @staticmethod
+    def get_user_profile(user_id: str):
+        """
+        Obtiene el perfil de un usuario de Facebook.
+        """
+        url = f"https://graph.facebook.com/{user_id}?fields=first_name,last_name&access_token={os.getenv('FACEBOOK_PAGE_ACCESS_TOKEN')}"
+        response = requests.get(url)
+        if response.status_code == 200:
+            return response.json()
+        else:
+            logging.error(f"Error al obtener el perfil del usuario: {response.status_code}, {response.text}")
+            return None
 
 
 
