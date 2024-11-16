@@ -444,19 +444,17 @@ class ChatbotService:
 
     @staticmethod
     def load_product_embeddings(db: Session):
-        """
-        Carga los embeddings de productos desde la base de datos.
-        """
-        productos = db.query(Producto).all()
-        nombres_productos = [producto.nombre for producto in productos]
+        with db as session:
+            productos = session.query(Producto).all()
+            nombres_productos = [producto.nombre for producto in productos]
 
-        if not nombres_productos:
-            logging.warning("No se encontraron productos en la base de datos para cargar embeddings.")
-            return
+            if not nombres_productos:
+                logging.warning("No se encontraron productos en la base de datos para cargar embeddings.")
+                return
 
-        embeddings = ChatbotService.model.encode(nombres_productos, convert_to_tensor=True)
-        ChatbotService.product_embeddings = dict(zip(nombres_productos, embeddings))
-        logging.info(f"Embeddings de productos cargados: {list(ChatbotService.product_embeddings.keys())}")
+            embeddings = ChatbotService.model.encode(nombres_productos, convert_to_tensor=True)
+            ChatbotService.product_embeddings = dict(zip(nombres_productos, embeddings))
+            logging.info(f"Embeddings de productos cargados: {list(ChatbotService.product_embeddings.keys())}")
 
 
 

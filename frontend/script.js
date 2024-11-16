@@ -126,7 +126,7 @@ async function deleteCuenta(cuentaId) {
 // Funciones para Ciudades
 async function fetchCiudades() {
     try {
-        const response = await fetch(`${backendUrl}cities/all`);
+        const response = await fetch(`${backendUrl}cities/all/`);
         const data = await response.json();
 
         // Asegúrate de acceder al array dentro del objeto `ciudades`
