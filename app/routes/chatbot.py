@@ -362,6 +362,7 @@ class ChatbotService:
         )
         return {"respuesta": respuesta}
 
+
     @staticmethod
     async def create_order_from_context(cuenta_id: int, db: Session) -> dict:
         context = ChatbotService.user_contexts[cuenta_id]
