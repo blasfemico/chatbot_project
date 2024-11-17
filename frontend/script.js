@@ -266,14 +266,14 @@ async function createFaqsBulk(event) {
     event.preventDefault();
 
     const faqsData = document.getElementById("faqsData").value.trim();
-    
-    // Divide las líneas y asegúrate de que terminen con un ";"
+
+    // Divide las líneas y asegura que cada una usa el formato correcto
     const faqs = faqsData.split('\n').map(line => {
-        if (!line.includes(',')) {
-            alert("Cada línea debe tener el formato 'pregunta,respuesta'.");
+        if (!line.includes(';')) {
+            alert("Cada línea debe tener el formato 'pregunta;respuesta'.");
             return null;
         }
-        const [question, answer] = line.split(',').map(item => item.trim());
+        const [question, answer] = line.split(';').map(item => item.trim());
         return { question, answer };
     }).filter(faq => faq !== null); // Filtra líneas inválidas
 
@@ -300,7 +300,6 @@ async function createFaqsBulk(event) {
         alert("Ocurrió un error al procesar la solicitud.");
     }
 }
-
 
 async function deleteFaq(faqId) {
     await fetch(`${backendUrl}faq/delete/${faqId}`, { method: 'DELETE' });
