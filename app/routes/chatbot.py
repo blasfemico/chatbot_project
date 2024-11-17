@@ -222,9 +222,9 @@ class ChatbotService:
 
         # Intentar crear la orden si se solicita explícitamente
         if hacer_order:
-            if not context["telefono"]:
+            if not context.get("telefono"):  # Cambios aquí: Uso de context.get para evitar errores de clave
                 return {"respuesta": "Por favor, proporcione su número de teléfono para completar la orden."}
-            if not context["nombre"] or not context["apellido"]:
+            if not context.get("nombre") or not context.get("apellido"):  # Cambios aquí
                 return {"respuesta": "Por favor, proporcione su nombre y apellido para completar la orden."}
             return await ChatbotService.create_order_from_context(cuenta_id, db)
 
@@ -247,13 +247,12 @@ class ChatbotService:
         logging.info(f"Contexto actualizado para cuenta_id {cuenta_id}: {context}")
 
         # Verificar si todos los datos necesarios para una orden están presentes
-        # Cambios aquí: Verificación adicional para evitar error si no hay producto
         if (
-            context.get("producto")  # Verifica si existe la clave 'producto'
-            and context["cantidad"]
-            and context["telefono"]
-            and context["nombre"]
-            and context["apellido"]
+            context.get("producto")  # Cambios aquí: Uso de context.get para evitar errores de clave
+            and context.get("cantidad")
+            and context.get("telefono")
+            and context.get("nombre")
+            and context.get("apellido")
         ):
             logging.info("Datos completos para crear la orden.")
             context["intencion_detectada"] = "crear_orden"
@@ -348,7 +347,7 @@ class ChatbotService:
             if faq_answer:
                 db_response = f"{faq_answer}\n\n{db_response}"
 
-        # Cambios aquí: Continuar el flujo incluso si hay errores menores
+        # Continuar el flujo incluso si hay errores menores
         try:
             respuesta = ChatbotService.generate_humanlike_response(
                 question, db_response, ciudades_nombres
@@ -358,6 +357,7 @@ class ChatbotService:
             respuesta = "Hubo un problema al procesar tu solicitud. Por favor, intenta de nuevo más tarde."
 
         return {"respuesta": respuesta}
+
 
 
 
