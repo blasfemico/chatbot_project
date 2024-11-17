@@ -148,13 +148,12 @@ async function deleteCuenta(cuentaId) {
 }
 
 
-// Funciones para Ciudades
 async function fetchCiudades() {
     try {
         const response = await fetch(`${backendUrl}cities/all/`);
         const data = await response.json();
 
-        // Asegúrate de acceder al array dentro del objeto `ciudades`
+        // Acceso al array de ciudades dentro del objeto `ciudades`
         const ciudades = data.ciudades;
         if (!Array.isArray(ciudades)) {
             console.error("La respuesta no es una lista:", ciudades);
@@ -162,8 +161,9 @@ async function fetchCiudades() {
             return;
         }
 
+        // Incluir ID de la ciudad en la representación
         document.getElementById("ciudades-list").innerHTML = ciudades.map(ciudad => `
-            <p>${ciudad.nombre} 
+            <p>ID: ${ciudad.id} - Nombre: ${ciudad.nombre} 
                 <button onclick="deleteCiudad(${ciudad.id})">Eliminar</button>
             </p>
         `).join("");
@@ -172,6 +172,7 @@ async function fetchCiudades() {
         document.getElementById("ciudades-list").innerHTML = "<p>Error al cargar ciudades.</p>";
     }
 }
+
 
 
 async function fetchProductosPorCiudad() {

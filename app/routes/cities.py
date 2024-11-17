@@ -33,9 +33,7 @@ async def get_all_cities(db: Session = Depends(get_db)):
         return {"ciudades": []}
 
     ciudades_serializables = [
-        {"id": ciudad.id, "nombre": ciudad.nombre, "productos": [
-            {"nombre": pc.producto.nombre} for pc in ciudad.productos
-        ]}
+        {"id": ciudad.id, "nombre": ciudad.nombre}  # Incluye el ID y el nombre
         for ciudad in ciudades
     ]
     return {"ciudades": ciudades_serializables}

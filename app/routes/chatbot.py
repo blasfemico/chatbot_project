@@ -355,6 +355,9 @@ class ChatbotService:
         except Exception as e:
             logging.error(f"Error al generar respuesta humanlike: {str(e)}")
             respuesta = "Hubo un problema al procesar tu solicitud. Por favor, intenta de nuevo más tarde."
+            
+        if not respuesta or respuesta == "Perdón, no entendí tu pregunta. ¿Podrías reformularla?":
+            return {"respuesta": "Perdón, no entendí tu pregunta. ¿Podrías reformularla?"}
 
         return {"respuesta": respuesta}
 
