@@ -12,7 +12,6 @@ class Config:
         self.DEBUG_MODE = os.getenv("DEBUG_MODE", "True").lower() in ("true", "1")
         self.PROJECT_NAME = "Chatbot Project"
 
-        # Cargar las API keys desde el archivo .env
         api_keys = os.getenv("API_KEYS")
         if api_keys:
             try:
@@ -26,5 +25,4 @@ class Config:
         return self.API_KEYS.get(page_name, None)
 
 
-# Instancia global
 settings = Config()

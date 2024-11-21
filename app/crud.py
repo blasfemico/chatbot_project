@@ -179,23 +179,20 @@ class CRUDCuentaProducto:
 class CRUDOrder:
     @staticmethod
     def get_delivery_day_message():
-        today = datetime.today().weekday()  # 0 = Lunes, 6 = Domingo
+        today = datetime.today().weekday() 
         delivery_day = "lunes" if today == 5 else "mañana"
         return f"Su pedido se entregará el {delivery_day}."
 
     def create_order(self, db: Session, order: schemas.OrderCreate, nombre: str, apellido: str) -> schemas.OrderResponse:
         try:
-            # Validar campos esenciales
             if not order.phone:
                 raise HTTPException(status_code=400, detail="El campo 'phone' es obligatorio.")
             if not order.producto:
                 raise HTTPException(status_code=400, detail="El campo 'producto' es obligatorio.")
 
-            # Log de datos antes de crear
             logging.info(f"Creando nueva orden con datos: phone={order.phone}, email={order.email}, address={order.address}, "
                         f"producto={order.producto}, cantidad_cajas={order.cantidad_cajas}, nombre={nombre}, apellido={apellido}")
 
-            # Crear la nueva orden
             new_order = Order(
                 phone=order.phone,
                 email=order.email or "N/A",
@@ -279,8 +276,8 @@ class CRUDOrder:
                 Order.address,
                 Order.producto,
                 Order.cantidad_cajas,
-                Order.nombre,   # Agregado
-                Order.apellido,  # Agregado
+                Order.nombre,   
+                Order.apellido,  
                 Order.ad_id
 
                 
@@ -288,7 +285,7 @@ class CRUDOrder:
         )
         orders = orders_query.fetchall()
         
-        # Construye la lista de diccionarios para coincidir con OrderResponse
+
         return [
             {
                 "id": order.id,
@@ -297,8 +294,8 @@ class CRUDOrder:
                 "address": order.address or "N/A",
                 "producto": order.producto,
                 "cantidad_cajas": order.cantidad_cajas,
-                "nombre": order.nombre or "N/A",   # Maneja el caso de campos faltantes
-                "apellido": order.apellido or "N/A",  # Maneja el caso de campos faltantes
+                "nombre": order.nombre or "N/A",   
+                "apellido": order.apellido or "N/A",
                 "ad_id": order.ad_id or "N/A"
             }
             for order in orders
@@ -383,3 +380,13 @@ class CRUDCiudad:
     @staticmethod
     def get_all_cities(db: Session):
         return db.query(Ciudad).all()
+    
+    @staticmethod
+    def delete_ciudad(self, db: Session, ciudad_id: int):
+        ciudad = db.query(Ciudad).filter(Ciudad.id == ciudad_id).first()
+        if not ciudad:
+            raise HTTPException(status_code=404, detail="Ciudad no encontrada")
+        db.query(ProductoCiudad).filter(ProductoCiudad.ciudad_id == ciudad_id).delete()
+        db.delete(ciudad)
+        db.commit()
+        return {"message": f"Ciudad con ID {ciudad_id} eliminada exitosamente"}

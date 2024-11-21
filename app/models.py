@@ -21,8 +21,8 @@ class Order(Base):
     producto = Column(String, nullable=False)
     cantidad_cajas = Column(Integer, default=1)
     ad_id = Column(String, nullable=True)
-    nombre = Column(String, default="N/A")  # Nuevo campo
-    apellido = Column(String, default="N/A")  # Nuevo campo
+    nombre = Column(String, default="N/A")  
+    apellido = Column(String, default="N/A")  
 
 class Ciudad(Base):
     __tablename__ = "ciudades"

@@ -18,11 +18,8 @@ class OrderService:
    
     @staticmethod
     def get_safe_file_path(directory: str, filename: str = "ordenes_exportadas.xlsx") -> str:
-        # Limpiar el nombre del archivo para que solo tenga caracteres seguros
         filename = re.sub(r'[^a-zA-Z0-9_\-\.]', '', filename)
         filename = filename if filename.endswith(".xlsx") else f"{filename}.xlsx"
-        
-        # Construir la ruta completa
         file_path = os.path.join(directory, filename)
         
         return file_path
@@ -93,9 +90,9 @@ class OrderService:
         return [
             {
                 "id": order.id,
-                "phone": order.phone or "N/A",      # Valor predeterminado
-                "email": order.email or "N/A",      # Valor predeterminado
-                "address": order.address or "N/A",  # Valor predeterminado
+                "phone": order.phone or "N/A",      
+                "email": order.email or "N/A",      
+                "address": order.address or "N/A",  
                 "producto": order.producto,
                 "cantidad_cajas": order.cantidad_cajas,
                 "nombre": order.nombre,
@@ -107,23 +104,17 @@ class OrderService:
     
     @staticmethod
     async def export_orders_to_excel(db: Session, file_path: Optional[str]) -> str:
-        # Crear un directorio temporal para el archivo si no se proporciona una ruta
         if not file_path:
             temp_dir = tempfile.mkdtemp()
             file_path = os.path.join(temp_dir, "ordenes_exportadas.xlsx")
         else:
-            # Validar y construir una ruta segura
             file_path = OrderService.get_safe_file_path(file_path)
 
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = "Órdenes"
-
-        # Añadir los encabezados, incluyendo los nuevos campos
         headers = ["ID", "Teléfono", "Email", "Dirección", "Producto", "Cantidad", "Ad ID", "Nombre", "Apellido"]
         sheet.append(headers)
-        
-        # Obtener todas las órdenes
         orders = CRUDOrder().get_all_orders(db)
         for order in orders:
             sheet.append([
@@ -133,16 +124,12 @@ class OrderService:
                 order["address"] or "N/A",
                 order["producto"],
                 order["cantidad_cajas"],
-                order.get("ad_id", "N/A"),  # Ad ID con valor predeterminado "N/A" si es None
-                order.get("nombre", "N/A"),  # Nombre con valor predeterminado "N/A" si es None
-                order.get("apellido", "N/A")  # Apellido con valor predeterminado "N/A" si es None
+                order.get("ad_id", "N/A"),
+                order.get("nombre", "N/A"), 
+                order.get("apellido", "N/A")  
             ])
-        
-        # Guardar el archivo Excel
         workbook.save(file_path)
-
-        # Asegurarse de que el archivo tiene permisos restrictivos
-        os.chmod(file_path, 0o600)  # Solo lectura y escritura para el propietario
+        os.chmod(file_path, 0o600)  
         
         return file_path
 
@@ -172,8 +159,8 @@ async def get_all_orders(skip: int = 0, limit: int = 1000, db: Session = Depends
     orders = CRUDOrder().get_all_orders(db=db, skip=skip, limit=limit)
     return [
         {
-            "id": order["id"],                 # Cambiar "order.id" a "order['id']" si order es un diccionario
-            "phone": order["phone"] or "N/A",   # Acceder a los valores como diccionario
+            "id": order["id"],                
+            "phone": order["phone"] or "N/A",   
             "email": order["email"] or "N/A",
             "address": order["address"] or "N/A",
             "producto": order["producto"],

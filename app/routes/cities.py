@@ -33,7 +33,11 @@ async def get_all_cities(db: Session = Depends(get_db)):
         return {"ciudades": []}
 
     ciudades_serializables = [
-        {"id": ciudad.id, "nombre": ciudad.nombre}  # Incluye el ID y el nombre
+        {"id": ciudad.id, "nombre": ciudad.nombre} 
         for ciudad in ciudades
     ]
     return {"ciudades": ciudades_serializables}
+
+@router.delete("/cities/{city_id}/", response_model=dict)
+def delete_city(city_id: int, db: Session = Depends(get_db)):
+    return crud.CRUDCiudad().delete_ciudad(db=db, ciudad_id=city_id)

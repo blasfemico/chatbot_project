@@ -108,7 +108,6 @@ async function loadSection(section) {
     }
 }
 
-// Funciones para Cuentas
 async function fetchCuentas() {
     const response = await fetch(`${backendUrl}accounts/all`);
     const cuentas = await response.json();
@@ -152,16 +151,12 @@ async function fetchCiudades() {
     try {
         const response = await fetch(`${backendUrl}cities/all/`);
         const data = await response.json();
-
-        // Acceso al array de ciudades dentro del objeto `ciudades`
         const ciudades = data.ciudades;
         if (!Array.isArray(ciudades)) {
             console.error("La respuesta no es una lista:", ciudades);
             document.getElementById("ciudades-list").innerHTML = "<p>Error al cargar ciudades.</p>";
             return;
         }
-
-        // Incluir ID de la ciudad en la representación
         document.getElementById("ciudades-list").innerHTML = ciudades.map(ciudad => `
             <p>ID: ${ciudad.id} - Nombre: ${ciudad.nombre} 
                 <button onclick="deleteCiudad(${ciudad.id})">Eliminar</button>
@@ -210,12 +205,10 @@ async function createCiudad(event) {
 }
 
 async function deleteCiudad(ciudadId) {
-    await fetch(`${backendUrl}cities/${ciudadId}`, { method: 'DELETE' });
+    await fetch(`${backendUrl}cities/${ciudadId}/`, { method: 'DELETE' });
     alert("Ciudad eliminada con éxito");
     fetchCiudades();
 }
-
-// Funciones para Productos
 async function fetchProductos() {
     const cuentaId = document.getElementById("cuentaId").value;
     const response = await fetch(`${backendUrl}accounts/${cuentaId}/products`);
@@ -251,8 +244,6 @@ async function deleteProducto(productoId) {
     alert("Producto eliminado con éxito");
     fetchProductos();
 }
-
-// Funciones para FAQs
 async function fetchFaqs() {
     const response = await fetch(`${backendUrl}faq/all`);
     const faqs = await response.json();
@@ -267,8 +258,6 @@ async function createFaqsBulk(event) {
     event.preventDefault();
 
     const faqsData = document.getElementById("faqsData").value.trim();
-
-    // Divide las líneas y asegura que cada una usa el formato correcto
     const faqs = faqsData.split('\n').map(line => {
         if (!line.includes(';')) {
             alert("Cada línea debe tener el formato 'pregunta;respuesta'.");
@@ -276,7 +265,7 @@ async function createFaqsBulk(event) {
         }
         const [question, answer] = line.split(';').map(item => item.trim());
         return { question, answer };
-    }).filter(faq => faq !== null); // Filtra líneas inválidas
+    }).filter(faq => faq !== null); 
 
     if (faqs.length === 0) {
         alert("Por favor, revisa el formato de las preguntas y respuestas.");
@@ -292,7 +281,7 @@ async function createFaqsBulk(event) {
 
         if (response.ok) {
             alert("FAQs creadas con éxito");
-            fetchFaqs(); // Actualiza la lista de FAQs
+            fetchFaqs(); 
         } else {
             alert("Error al crear FAQs. Revisa el formato de entrada.");
         }
@@ -308,7 +297,6 @@ async function deleteFaq(faqId) {
     fetchFaqs();
 }
 
-// Funciones para Órdenes
 async function fetchOrders() {
     try {
         const response = await fetch(`${backendUrl}orders/all/`);
@@ -434,13 +422,22 @@ async function createApiKey(event) {
     event.preventDefault();
     const name = document.getElementById("nombreApiKey").value;
     const key = document.getElementById("apiKeyValue").value;
-    await fetch(`${backendUrl}apikeys/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+
+    const response = await fetch(`${backendUrl}apikeys/`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
         body: JSON.stringify({ name, key })
     });
-    alert("API Key creada con éxito");
-    fetchApiKeys();
+
+    if (response.ok) {
+        alert("API Key creada con éxito");
+        fetchApiKeys(); 
+    } else {
+        const errorData = await response.json();
+        alert(`Error: ${errorData.detail}`);
+    }
 }
 
 async function deleteApiKey(name) {

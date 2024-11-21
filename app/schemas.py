@@ -82,7 +82,7 @@ class OrderResponse(BaseModel):
 class Cuenta(BaseModel):
     id: int
     nombre: str
-    page_id: str  # Cambiado a page_id en lugar de api_key
+    page_id: str  
 
     class Config:
         from_attributes = True
@@ -90,12 +90,12 @@ class Cuenta(BaseModel):
 
 class CuentaCreate(BaseModel):
     nombre: str
-    page_id: str  # Definimos page_id como campo requerido al crear una cuenta
+    page_id: str  
 
 
 class CuentaUpdate(BaseModel):
     nombre: Optional[str] = None
-    page_id: Optional[str] = None  # Permitir actualizar page_id si es necesario
+    page_id: Optional[str] = None  
 
 
 # Modelos para Productos
@@ -160,3 +160,7 @@ class CiudadResponse(CiudadCreate):
 
     class Config:
         from_attributes = True
+
+class APIKeyCreate(BaseModel):
+    name: str
+    key: str

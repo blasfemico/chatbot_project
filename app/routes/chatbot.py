@@ -12,7 +12,7 @@ from app.models import (
 from app.crud import CRUDProduct, FAQCreate, CRUDFaq, CRUDCiudad
 from app.routes.orders import OrderService
 from app.schemas import Cuenta as CuentaSchema
-from app.schemas import FAQSchema, FAQUpdate, OrderCreate
+from app.schemas import FAQSchema, FAQUpdate, OrderCreate, APIKeyCreate
 from app.config import settings
 from openai import OpenAI
 import json
@@ -139,16 +139,15 @@ class ChatbotService:
             "Revisa la base de datos",
         ]
 
-        # Verifica si alguna de las frases vagas está en la respuesta
         for phrase in vague_phrases:
             if phrase.lower() in response.lower():
                 return True
 
-        # Validación adicional: si el contexto contiene un producto y una cantidad, no debe ser poco clara
+      
         if context.get("producto") and context.get("cantidad"):
             return False
 
-        # Validación adicional: longitud de la respuesta (demasiado corta o sin información relevante)
+     
         if len(response) < 10 or "?" in response[-1]:
             return True
 
@@ -205,7 +204,6 @@ class ChatbotService:
 
     @staticmethod
     async def ask_question(question: str, cuenta_id: int, db: Session, hacer_order=False) -> dict:
-        # Inicializar el contexto si no existe para la cuenta
         if cuenta_id not in ChatbotService.user_contexts:
             ChatbotService.user_contexts[cuenta_id] = {
                 "producto": None,
@@ -219,21 +217,17 @@ class ChatbotService:
 
         context = ChatbotService.user_contexts[cuenta_id]
         logging.info(f"Contexto inicial para cuenta_id {cuenta_id}: {context}")
-
-        # Intentar crear la orden si se solicita explícitamente
         if hacer_order:
-            if not context.get("telefono"):  # Cambios aquí: Uso de context.get para evitar errores de clave
+            if not context.get("telefono"):  
                 return {"respuesta": "Por favor, proporcione su número de teléfono para completar la orden."}
-            if not context.get("nombre") or not context.get("apellido"):  # Cambios aquí
+            if not context.get("nombre") or not context.get("apellido"):  
                 return {"respuesta": "Por favor, proporcione su nombre y apellido para completar la orden."}
             return await ChatbotService.create_order_from_context(cuenta_id, db)
 
-        # Verificar y cargar embeddings si no están cargados
+
         if not ChatbotService.product_embeddings:
             logging.info("Cargando embeddings de productos por primera vez...")
             ChatbotService.load_product_embeddings(db)
-
-        # Extraer información del mensaje
         producto, cantidad = ChatbotService.extract_product_and_quantity(question)
         phone_number = ChatbotService.extract_phone_number(question)
 
@@ -246,9 +240,8 @@ class ChatbotService:
 
         logging.info(f"Contexto actualizado para cuenta_id {cuenta_id}: {context}")
 
-        # Verificar si todos los datos necesarios para una orden están presentes
         if (
-            context.get("producto")  # Cambios aquí: Uso de context.get para evitar errores de clave
+            context.get("producto") 
             and context.get("cantidad")
             and context.get("telefono")
             and context.get("nombre")
@@ -258,7 +251,6 @@ class ChatbotService:
             context["intencion_detectada"] = "crear_orden"
             return await ChatbotService.ask_question(question, cuenta_id, db, hacer_order=True)
 
-        # Cargar ciudades y productos disponibles
         ciudades_disponibles = CRUDCiudad.get_all_cities(db)
         ciudades_nombres = [ciudad.nombre for ciudad in ciudades_disponibles]
 
@@ -277,8 +269,6 @@ class ChatbotService:
         productos_por_ciudad_str = "\n".join(
             [f"{ciudad}: {', '.join(productos)}" for ciudad, productos in productos_por_ciudad.items()]
         )
-
-        # Prompt para identificar intención
         intent_prompt = f"""
         Eres un asistente de ventas que ayuda a interpretar preguntas sobre disponibilidad de productos en ciudades específicas.
 
@@ -305,10 +295,8 @@ class ChatbotService:
             intent_data = json.loads(raw_response)
         except (JSONDecodeError, Exception) as e:
             logging.error(f"Error al identificar intención: {str(e)}")
-            # Cambios aquí: Se asegura de que la intención no detenga el flujo
             intent_data = {"intent": "otro"}
 
-        # Procesar la respuesta según la intención detectada
         if intent_data.get("intent") == "listar_productos":
             context["intencion_detectada"] = "listar_productos"
             productos = crud_producto.get_productos_by_cuenta(db, cuenta_id)
@@ -346,8 +334,6 @@ class ChatbotService:
             )
             if faq_answer:
                 db_response = f"{faq_answer}\n\n{db_response}"
-
-        # Continuar el flujo incluso si hay errores menores
         try:
             respuesta = ChatbotService.generate_humanlike_response(
                 question, db_response, ciudades_nombres
@@ -389,7 +375,7 @@ class ChatbotService:
                 f"Tu orden de {context['cantidad']} unidad(es) de {context['producto']} ha sido creada "
                 f"con el número de teléfono: {context['telefono']}. {result['message']}"
             )
-            del ChatbotService.user_contexts[cuenta_id]  # Limpiar el contexto después de la orden
+            del ChatbotService.user_contexts[cuenta_id] 
             return {"respuesta": response_text}
         except HTTPException as e:
             logging.error(f"Error HTTP al crear la orden: {str(e)}")
@@ -413,7 +399,6 @@ class ChatbotService:
         cantidad_match = re.findall(r"\b(\d+)\b", text)
         cantidad = None
 
-        # Evitar confusión con números de teléfono
         phone_number = ChatbotService.extract_phone_number(text)
         if phone_number:
             cantidad_match = [num for num in cantidad_match if num not in phone_number]
@@ -454,7 +439,7 @@ class ChatbotService:
         """
         Carga los embeddings de productos desde la base de datos.
         """
-        productos = db.query(Producto).all()  # Aquí usamos la sesión directamente
+        productos = db.query(Producto).all()  
         nombres_productos = [producto.nombre for producto in productos]
 
         if not nombres_productos:
@@ -468,7 +453,6 @@ class ChatbotService:
 
     @staticmethod
     def get_product_list(db: Session) -> list:
-        # Solo carga de la base de datos si el caché es None
         if not ChatbotService.product_list_cache:
             productos = db.query(Producto).all()
             ChatbotService.product_list_cache = [{"id": prod.id, "nombre": prod.nombre} for prod in productos]
@@ -481,7 +465,7 @@ class ChatbotService:
 
     @staticmethod
     def cache_response(question, response):
-        cache.set(question, json.dumps(response), ex=3600)  # Expira en 1 hora
+        cache.set(question, json.dumps(response), ex=3600) 
 
     @staticmethod
     def get_cached_response(question):
@@ -490,14 +474,14 @@ class ChatbotService:
             return json.loads(cached_response)
         return None
 
-    # Uso en el flujo del chatbot
+
     @staticmethod
     def get_response(question):
         cached_response = ChatbotService.get_cached_response(question)
         if cached_response:
             return cached_response
         else:
-            response = client.chat.completions.create(...)  # Llamada a OpenAI
+            response = client.chat.completions.create(...)  
             ChatbotService.cache_response(question, response)
             return response
 
@@ -607,14 +591,14 @@ class FacebookService:
             result = response.choices[0].message.content.strip()
             logging.info(f"Raw response from ChatGPT: {result}")
 
-            # Parsear el JSON y manejar errores
+       
             try:
                 context_data = json.loads(result)
             except json.JSONDecodeError:
                 logging.error("Error decoding JSON from ChatGPT response, returning empty context.")
                 return {}
 
-            # Verificar que el JSON contiene datos válidos
+         
             if not context_data.get("producto") or not context_data.get("cantidad"):
                 logging.info("Producto o cantidad no especificados claramente en el historial.")
                 return {}
@@ -628,12 +612,10 @@ class FacebookService:
         
     @staticmethod
     def analyze_order_without_ai(message_text: str, productos_nombres: list) -> dict:
-        # Embedding del mensaje del cliente
         message_embedding = FacebookService.model.encode(message_text)
         productos_embeddings = FacebookService.model.encode(productos_nombres)
         similarities = util.cos_sim(message_embedding, productos_embeddings)[0]
-        
-        # Identificar el producto más similar
+
         max_similarity_index = similarities.argmax().item()
         max_similarity_value = similarities[max_similarity_index]
         threshold = 0.5
@@ -672,8 +654,6 @@ class FacebookService:
                 if "message" in event and not event.get("message", {}).get("is_echo"):
                     sender_id = event["sender"]["id"]
                     message_text = event["message"].get("text", "").strip()
-
-                    # Extraer nombre y apellido si no están presentes
                     if not ChatbotService.user_contexts.get(cuenta_id, {}).get("nombre"):
                         user_profile = FacebookService.get_user_profile(sender_id)
                         if user_profile:
@@ -681,8 +661,6 @@ class FacebookService:
                                 "nombre": user_profile.get("first_name"),
                                 "apellido": user_profile.get("last_name"),
                             })
-
-                    # Procesar el mensaje recibido
                     try:
                         response_data = await ChatbotService.ask_question(
                             question=message_text,
@@ -691,8 +669,6 @@ class FacebookService:
                         )
                         response_text = response_data.get("respuesta", "Lo siento, no entendí tu mensaje.")
                         logging.info(f"Respuesta enviada al usuario {sender_id}: {response_text}")
-
-                        # Enviar respuesta al usuario
                         FacebookService.send_text_message(sender_id, response_text)
                     except Exception as e:
                         logging.error(f"Error procesando el mensaje: {str(e)}")
@@ -741,12 +717,10 @@ class FacebookService:
         """
         Envía un mensaje de texto al usuario en Facebook Messenger.
         """
-        # Cargar una API Key genérica desde api_keys.json
         api_keys = FacebookService.load_api_keys()
         if not api_keys:
             logging.error("No se encontraron API Keys configuradas.")
             raise HTTPException(status_code=500, detail="No hay API Keys configuradas.")
-        # Usar la primera API Key disponible
         api_key = list(api_keys.values())[0]
 
         url = "https://graph.facebook.com/v12.0/me/messages"
@@ -776,8 +750,6 @@ class FacebookService:
             FacebookService.send_image_message(recipient_id, image_url)
         else:
             FacebookService.send_text_message(recipient_id, answer)
-
-        # Cargar API keys desde el archivo JSON
     @staticmethod
     def load_api_keys():
         """
@@ -805,23 +777,21 @@ async def get_api_keys():
     Devuelve la lista de API Keys configuradas.
     """
     api_keys = FacebookService.load_api_keys()
-    # Asegurarte de devolver una lista
     return [{"name": name, "key": key} for name, key in api_keys.items()]
 
 
 
 @router.post("/apikeys/")
-async def create_api_key(name: str, key: str):
+async def create_api_key(api_key: APIKeyCreate):
     """
     Crea una nueva API Key en el archivo api_keys.json.
     """
     api_keys = FacebookService.load_api_keys()
-    if name in api_keys:
+    if api_key.name in api_keys:
         raise HTTPException(status_code=400, detail="El nombre ya existe.")
-    api_keys[name] = key
+    api_keys[api_key.name] = api_key.key
     FacebookService.save_api_keys(api_keys)
     return {"message": "API Key creada con éxito"}
-
 
 @router.delete("/apikeys/{name}")
 async def delete_api_key(name: str):
