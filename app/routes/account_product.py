@@ -23,11 +23,8 @@ async def create_account(account_data: CuentaCreate, db: Session = Depends(get_d
 def get_products_for_account(account_id: int, db: Session = Depends(get_db)):
     """Obtiene todos los productos y precios de una cuenta específica"""
     productos = crud.CRUDCuentaProducto().get_products_for_account(db=db, cuenta_id=account_id)
-    for producto in productos:
-        if not hasattr(producto, 'id') or producto.id is None:
-            raise HTTPException(status_code=500, detail="Producto sin ID encontrado.")
-    
     return productos
+
 
 
 

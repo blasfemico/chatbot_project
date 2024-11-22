@@ -86,18 +86,15 @@ class CRUDProduct:
         db.refresh(db_producto)
         return db_producto
 
-    def get_products_for_account(self, db: Session, cuenta_id: int):
-        """Obtiene la lista de productos y precios de una cuenta específica."""
+    def get_productos_by_cuenta(self, db: Session, cuenta_id: int):
+        """Obtiene todos los productos y precios asociados a una cuenta específica."""
         productos = (
-            db.query(Producto.id, Producto.nombre, CuentaProducto.precio)
-            .join(CuentaProducto, Producto.id == CuentaProducto.producto_id)
+            db.query(CuentaProducto)
+            .join(Producto)
             .filter(CuentaProducto.cuenta_id == cuenta_id)
             .all()
         )
-        # Aseguramos que el ID del producto esté presente en la respuesta
-        return [
-            {"id": p[0], "producto": p[1], "precio": p[2]} for p in productos
-        ]
+        return [{"producto": p.producto.nombre, "precio": p.precio} for p in productos]
 
     def get_all_productos(self, db: Session):
         """Obtiene todos los productos en la base de datos."""
@@ -171,13 +168,21 @@ class CRUDCuentaProducto:
     def get_products_for_account(self, db: Session, cuenta_id: int):
         """Obtiene la lista de productos y precios de una cuenta específica."""
         productos = (
-            db.query(Producto.nombre, CuentaProducto.precio)
-            .join(CuentaProducto)
+            db.query(
+                Producto.id.label("id"), 
+                Producto.nombre.label("producto"), 
+                CuentaProducto.precio.label("precio")
+            )
+            .join(CuentaProducto, Producto.id == CuentaProducto.producto_id)
             .filter(CuentaProducto.cuenta_id == cuenta_id)
             .all()
         )
-        return [{"producto": p[0], "precio": p[1]} for p in productos]
 
+        if not productos:
+            raise HTTPException(status_code=404, detail="No se encontraron productos para esta cuenta.")
+        
+        # Devuelve una lista de diccionarios con id, producto y precio
+        return [{"id": p.id, "producto": p.producto, "precio": p.precio} for p in productos]
 
 class CRUDOrder:
     @staticmethod

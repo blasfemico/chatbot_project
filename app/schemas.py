@@ -142,9 +142,12 @@ class ProductosCuentaCreate(BaseModel):
 
 
 class ProductoCuentaResponse(BaseModel):
+    id: int
     producto: str
     precio: float
 
+    class Config:
+        from_attributes = True
 
 class CiudadCreate(BaseModel):
     nombre: str
