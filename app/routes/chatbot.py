@@ -26,7 +26,6 @@ from json import JSONDecodeError
 import torch
 import logging
 from cachetools import TTLCache
-from app import config
 
 
 cache = TTLCache(maxsize=100, ttl=3600)
@@ -38,6 +37,7 @@ crud_producto = CRUDProduct()
 crud_faq = CRUDFaq(model)
 VERIFY_TOKEN = "chatbot_project"
 API_KEYS_FILE = "api_keys.json" 
+processed_message_ids = set()
 
 class ChatbotService:
     @staticmethod
@@ -627,10 +627,11 @@ class FacebookService:
         
         return {"is_order": False}
 
-    
-    
     @staticmethod
     async def facebook_webhook(request: Request, db: Session = Depends(get_db)):
+        """
+        Maneja los eventos del webhook de Facebook Messenger.
+        """
         try:
             data = await request.json()
             logging.info(f"Payload recibido: {data}")
@@ -651,6 +652,13 @@ class FacebookService:
 
             cuenta_id = cuenta.id
             for event in entry.get("messaging", []):
+                message_id = event.get("message", {}).get("mid")
+                if message_id in processed_message_ids:
+                    logging.info(f"Mensaje duplicado detectado: {message_id}. Ignorando.")
+                    continue 
+
+                processed_message_ids.add(message_id) 
+
                 if "message" in event and not event.get("message", {}).get("is_echo"):
                     sender_id = event["sender"]["id"]
                     message_text = event["message"].get("text", "").strip()
@@ -661,6 +669,7 @@ class FacebookService:
                                 "nombre": user_profile.get("first_name"),
                                 "apellido": user_profile.get("last_name"),
                             })
+
                     try:
                         response_data = await ChatbotService.ask_question(
                             question=message_text,
@@ -668,11 +677,14 @@ class FacebookService:
                             db=db,
                         )
                         response_text = response_data.get("respuesta", "Lo siento, no entendí tu mensaje.")
+                        
                         logging.info(f"Respuesta enviada al usuario {sender_id}: {response_text}")
                         FacebookService.send_text_message(sender_id, response_text)
                     except Exception as e:
                         logging.error(f"Error procesando el mensaje: {str(e)}")
         return {"status": "ok"}
+
+
 
 
     @staticmethod
@@ -686,7 +698,11 @@ class FacebookService:
             return response.json()
         else:
             logging.error(f"Error al obtener el perfil del usuario: {response.status_code}, {response.text}")
-            return None
+            return {
+                "first_name": "Cliente",
+                "last_name": ""
+            } 
+
 
 
 
@@ -712,17 +728,22 @@ class FacebookService:
             )
         return response.json()
 
+
     @staticmethod
     def send_text_message(recipient_id: str, text: str):
         """
         Envía un mensaje de texto al usuario en Facebook Messenger.
         """
+        if not text or not text.strip():
+            logging.error("Intento de enviar un mensaje vacío. El mensaje no será enviado.")
+            raise HTTPException(status_code=400, detail="El mensaje no puede estar vacío.")
+
         api_keys = FacebookService.load_api_keys()
         if not api_keys:
             logging.error("No se encontraron API Keys configuradas.")
             raise HTTPException(status_code=500, detail="No hay API Keys configuradas.")
+        
         api_key = list(api_keys.values())[0]
-
         url = "https://graph.facebook.com/v12.0/me/messages"
         headers = {"Content-Type": "application/json"}
         data = {"recipient": {"id": recipient_id}, "message": {"text": text}}
@@ -733,7 +754,7 @@ class FacebookService:
             logging.error(f"Error al enviar el mensaje de texto: {response.json()}")
             raise HTTPException(
                 status_code=response.status_code,
-                detail="Error al enviar el mensaje de texto."
+                detail=f"Error al enviar el mensaje de texto: {response.json()}",
             )
         return response.json()
 
