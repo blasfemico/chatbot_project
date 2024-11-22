@@ -209,16 +209,43 @@ async function deleteCiudad(ciudadId) {
     alert("Ciudad eliminada con éxito");
     fetchCiudades();
 }
+
 async function fetchProductos() {
     const cuentaId = document.getElementById("cuentaId").value;
-    const response = await fetch(`${backendUrl}accounts/${cuentaId}/products`);
-    const productos = await response.json();
-    document.getElementById("productos-list").innerHTML = productos.map(producto => `
-        <p>${producto.producto} - Precio: ${producto.precio}
-            <button onclick="deleteProducto(${producto.id})">Eliminar</button>
-        </p>
-    `).join("");
+    if (!cuentaId) {
+        alert("Por favor, ingresa el ID de la cuenta.");
+        return;
+    }
+    try {
+        const response = await fetch(`${backendUrl}accounts/${cuentaId}/products`);
+        const productos = await response.json();
+
+        // Asegúrate de que `productos` sea un array y tenga datos válidos
+        if (!Array.isArray(productos)) {
+            console.error("La respuesta no es una lista de productos:", productos);
+            document.getElementById("productos-list").innerHTML = "<p>Error al cargar productos.</p>";
+            return;
+        }
+
+        // Genera el HTML asegurándote de que cada producto tiene un id válido
+        document.getElementById("productos-list").innerHTML = productos
+            .map((producto) => {
+                if (!producto.id) {
+                    console.error("Producto sin ID encontrado:", producto);
+                    return `<p>Error: Producto sin ID no se puede eliminar.</p>`;
+                }
+                return `
+                    <p>${producto.producto} - Precio: ${producto.precio}
+                        <button onclick="deleteProducto(${producto.id})">Eliminar</button>
+                    </p>`;
+            })
+            .join("");
+    } catch (error) {
+        console.error("Error al cargar productos:", error);
+        document.getElementById("productos-list").innerHTML = "<p>Error al cargar productos.</p>";
+    }
 }
+
 
 async function createProductos(event) {
     event.preventDefault();
