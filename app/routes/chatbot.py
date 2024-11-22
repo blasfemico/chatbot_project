@@ -628,6 +628,40 @@ class FacebookService:
         return {"is_order": False}
 
     @staticmethod
+    def load_api_keys():
+        """
+        Carga las API Keys desde el archivo api_keys.json.
+        """
+        if not os.path.exists(FacebookService.API_KEYS_FILE):
+            with open(FacebookService.API_KEYS_FILE, "w") as file:
+                json.dump({}, file)
+        with open(FacebookService.API_KEYS_FILE, "r") as file:
+            return json.load(file)
+
+    @staticmethod
+    def save_api_keys(api_keys):
+        """
+        Guarda las API Keys en el archivo api_keys.json.
+        """
+        with open(FacebookService.API_KEYS_FILE, "w") as file:
+            json.dump(api_keys, file)
+
+    @staticmethod
+    def get_api_key_for_page(page_id: str) -> str:
+        """
+        Obtiene la API Key asociada a un `page_id`.
+        """
+        api_keys = FacebookService.load_api_keys()
+        api_key = api_keys.get(page_id)
+        if not api_key:
+            logging.error(f"No se encontró una API Key para la página con ID {page_id}.")
+            raise HTTPException(
+                status_code=404, detail=f"No se encontró una API Key para la página {page_id}."
+            )
+        return api_key
+
+
+    @staticmethod
     async def facebook_webhook(request: Request, db: Session = Depends(get_db)):
         """
         Maneja los eventos del webhook de Facebook Messenger.
@@ -679,7 +713,7 @@ class FacebookService:
                         response_text = response_data.get("respuesta", "Lo siento, no entendí tu mensaje.")
                         
                         logging.info(f"Respuesta enviada al usuario {sender_id}: {response_text}")
-                        FacebookService.send_text_message(sender_id, response_text)
+                        FacebookService.send_text_message(page_id, sender_id, response_text)
                     except Exception as e:
                         logging.error(f"Error procesando el mensaje: {str(e)}")
         return {"status": "ok"}
@@ -730,7 +764,7 @@ class FacebookService:
 
 
     @staticmethod
-    def send_text_message(recipient_id: str, text: str):
+    def send_text_message(page_id: str, recipient_id: str, text: str):
         """
         Envía un mensaje de texto al usuario en Facebook Messenger.
         """
@@ -738,12 +772,7 @@ class FacebookService:
             logging.error("Intento de enviar un mensaje vacío. El mensaje no será enviado.")
             raise HTTPException(status_code=400, detail="El mensaje no puede estar vacío.")
 
-        api_keys = FacebookService.load_api_keys()
-        if not api_keys:
-            logging.error("No se encontraron API Keys configuradas.")
-            raise HTTPException(status_code=500, detail="No hay API Keys configuradas.")
-        
-        api_key = list(api_keys.values())[0]
+        api_key = FacebookService.get_api_key_for_page(page_id)
         url = "https://graph.facebook.com/v12.0/me/messages"
         headers = {"Content-Type": "application/json"}
         data = {"recipient": {"id": recipient_id}, "message": {"text": text}}
@@ -771,25 +800,7 @@ class FacebookService:
             FacebookService.send_image_message(recipient_id, image_url)
         else:
             FacebookService.send_text_message(recipient_id, answer)
-    @staticmethod
-    def load_api_keys():
-        """
-        Carga las API Keys desde el archivo api_keys.json.
-        """
-        if not os.path.exists(FacebookService.API_KEYS_FILE):
-            with open(FacebookService.API_KEYS_FILE, "w") as file:
-                json.dump({}, file)
-        with open(FacebookService.API_KEYS_FILE, "r") as file:
-            return json.load(file)
-
-    @staticmethod
-    def save_api_keys(api_keys):
-        """
-        Guarda las API Keys en el archivo api_keys.json.
-        """
-        with open(FacebookService.API_KEYS_FILE, "w") as file:
-            json.dump(api_keys, file)
-
+  
 
 
 @router.get("/apikeys/", response_model=List[dict])
