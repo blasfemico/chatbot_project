@@ -63,9 +63,16 @@ class ChatbotService:
     ) -> str:
         ciudades_str = ", ".join(ciudades_disponibles)
 
-        if ChatbotService.is_conversation_over_dynamic(question):
-            ChatbotService.update_keywords_based_on_feedback(question)  
+        ChatbotService.update_keywords_based_on_feedback(question)
+
+        feedback_phrases = [
+            "muchas gracias", "no gracias", "ya no", "listo", "luego te hablo",
+            "no necesito más", "ok", "gracias por info", "adios"
+        ]
+
+        if any(phrase in question.lower() for phrase in feedback_phrases):
             return "Gracias por contactarnos. Si necesitas algo más, no dudes en escribirnos. ¡Que tengas un buen día!"
+
 
         prompt = f"""
     Eres una asistente de ventas que responde preguntas de clientes únicamente con información basada en los datos de productos y precios disponibles en la base de datos. 
@@ -224,12 +231,15 @@ class ChatbotService:
 
     @staticmethod
     async def ask_question(question: str, cuenta_id: int, db: Session, hacer_order=False) -> dict:
-        if ChatbotService.is_conversation_over_dynamic(question):
-            ChatbotService.update_keywords_based_on_feedback(question)  
+        ChatbotService.update_keywords_based_on_feedback(question)  
+        feedback_phrases = [
+            "muchas gracias", "no gracias", "ya no", "listo", "luego te hablo",
+            "no necesito más", "ok", "gracias por info", "adios"
+        ]
+        if any(phrase in question.lower() for phrase in feedback_phrases):
             return {"respuesta": "Gracias por contactarnos. Si necesitas algo más, no dudes en escribirnos. ¡Que tengas un buen día!"}
-        context = ChatbotService.user_contexts.get(cuenta_id, {})
-        logging.info(f"Contexto inicial para cuenta_id {cuenta_id}: {context}")
-        
+
+
         if cuenta_id not in ChatbotService.user_contexts:
             ChatbotService.user_contexts[cuenta_id] = {
                 "producto": None,
@@ -375,6 +385,15 @@ class ChatbotService:
         return {"respuesta": respuesta}
 
 
+    @staticmethod
+    def update_context(cuenta_id: int, producto: str, cantidad: int):
+        context = ChatbotService.user_contexts.get(cuenta_id, {})
+        if producto:
+            context["producto"] = producto
+        if cantidad is not None:
+            context["cantidad"] = cantidad
+        ChatbotService.user_contexts[cuenta_id] = context
+        logging.info(f"Contexto actualizado para cuenta_id {cuenta_id}: {ChatbotService.user_contexts[cuenta_id]}")
 
 
 
