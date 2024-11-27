@@ -44,6 +44,17 @@ processed_message_ids = set()
 class ChatbotService:
 
     @staticmethod
+    def extract_product_from_initial_message(initial_message: str) -> str:
+        """
+        Extrae el nombre del producto del mensaje inicial enviado automáticamente por Facebook.
+        Si no se detecta un producto, devuelve un valor predeterminado.
+        """
+        product_match = re.search(r"información sobre las (pastillas|producto|cápsulas) (\w+)", initial_message, re.IGNORECASE)
+        if product_match:
+            return product_match.group(2).capitalize() 
+        return "Acxion" 
+
+    @staticmethod
     def sanitize_text(text: str) -> str:
         sanitized_text = re.sub(r"[^a-zA-Z0-9\s]", "", unidecode(text)) 
         return sanitized_text.lower()
@@ -67,6 +78,7 @@ class ChatbotService:
         db_response: str,
         ciudades_disponibles: list,
         chat_history: str = "",
+        primer_producto: str = "Acxion", 
     ) -> str:
         ciudades_str = ", ".join(ciudades_disponibles)
         ChatbotService.update_keywords_based_on_feedback(question)
@@ -78,6 +90,35 @@ class ChatbotService:
 
         if any(phrase in question.lower() for phrase in feedback_phrases):
             return "Gracias por contactarnos. Si necesitas algo más, no dudes en escribirnos. ¡Que tengas un buen día!"
+        if primer_producto and primer_producto not in ChatbotService.initial_message_sent:
+            ChatbotService.initial_message_sent.add(primer_producto)
+            return f"""
+            Hola, te comparto información de mi producto estrella:
+
+            ¡BAJA DE PESO FÁCIL Y RÁPIDO CON {primer_producto}! 
+            (resultados desde la primera o segunda semana)
+
+            BENEFICIOS:
+             • Baja alrededor de 6-10 kilos por mes ASEGURADO.
+             • Acelera tu metabolismo y mejora la digestión.
+             • Quema grasa y reduce tallas rápidamente.
+             • Sin rebote / Sin efectos secundarios
+
+            Instrucciones: Tomar una pastilla al día durante el desayuno.
+            Contenido: 30 tabletas por caja.
+
+            Precio normal:
+            1 caja: (revisar base de datos para el precio de una caja)
+            PROMOCIONES:
+            2 cajas: (revisar base de datos para el precio de dos cajas)
+            3 cajas: (revisar base de datos para el precio de tres cajas)
+            4 cajas: (revisar base de datos para el precio de cuatro cajas)
+            5 cajas: (revisar base de datos para el precio de cinco cajas)
+
+            ¡Entrega a domicilio GRATIS y pagas al recibir!
+
+            Solo necesito tu número de teléfono, tu dirección y la ciudad en la que vives para agendarte un pedido!
+            """
 
 
         prompt = f"""
@@ -112,7 +153,7 @@ class ChatbotService:
 
         Hola, te comparto información de mi producto estrella:
 
-        ¡BAJA DE PESO FÁCIL Y RÁPIDO CON ACXION! 
+        ¡BAJA DE PESO FÁCIL Y RÁPIDO CON (Revisar nombre del producto en el chat)! 
         (resultados desde la primera o segunda semana)
 
         BENEFICIOS:
@@ -397,15 +438,28 @@ class ChatbotService:
 
     @staticmethod
     async def create_order_from_context(cuenta_id: int, db: Session) -> dict:
+        """
+        Crea la orden utilizando el contexto actual y detecta la ciudad automáticamente
+        si no se encuentra explícita en el contexto.
+        """
         context = ChatbotService.user_contexts[cuenta_id]
         logging.info(f"Creando orden con el contexto: {context}")
+        telefono = context.get("telefono")
+        if telefono and not context.get("ciudad"):
+            location_code = telefono[:3]  
+            ciudad = CRUDCiudad.get_city_by_phone_prefix(db, location_code)
+            if ciudad:
+                context["ciudad"] = ciudad
+            else:
+                context["ciudad"] = "N/A"  
 
         order_data = OrderCreate(
-            phone=context["telefono"],
+            phone=telefono,
             email=None,
             address=None,
             producto=context["producto"],
             cantidad_cajas=context["cantidad"],
+            ciudad=context["ciudad"], 
             ad_id=context.get("ad_id", "N/A"),
         )
         nombre = context.get("nombre", "Cliente")
@@ -415,11 +469,16 @@ class ChatbotService:
             logging.info(f"Llamando a create_order con: order_data={order_data}, nombre={nombre}, apellido={apellido}")
             result = await OrderService.create_order(order_data, db, nombre, apellido)
             logging.info(f"Resultado de creación de la orden: {result}")
+            
             response_text = (
-                f"Tu orden de {context['cantidad']} unidad(es) de {context['producto']} ha sido creada "
-                f"con el número de teléfono: {context['telefono']}. {result['message']}"
+                f"✅ Su pedido ya quedó programado!\n\n"
+                f"El repartidor sale de 8 AM a 9 PM él le marca y le manda un Whatsapp para confirmar la entrega 🛵\n\n"
+                f"📞Recuerde estar al pendiente del teléfono, porque si usted no contesta, el repartidor no se presenta. "
+                f"En caso de que usted no pueda, reagendamos la entrega sin ningún problema.\n\n"
+                f"Cualquier otra duda aquí estoy para servirle 🤗"
             )
-            del ChatbotService.user_contexts[cuenta_id] 
+            
+            del ChatbotService.user_contexts[cuenta_id]  # Limpia el contexto después de crear la orden
             return {"respuesta": response_text}
         except HTTPException as e:
             logging.error(f"Error HTTP al crear la orden: {str(e)}")
@@ -429,6 +488,7 @@ class ChatbotService:
             return {"respuesta": "Hubo un error técnico al crear tu orden. Por favor, inténtalo más tarde."}
 
 
+    
     @staticmethod
     def extract_phone_number(text: str):
         phone_match = re.search(r"\+?\d{10,15}", text)
@@ -576,6 +636,17 @@ class FAQService:
         """
         faqs = crud_faq.get_all_faqs(db)
         return faqs
+    
+    @router.delete("/faq/delete_all/")
+    async def delete_all_faqs(db: Session = Depends(get_db)):
+        """
+        Elimina todas las preguntas frecuentes de la base de datos.
+        """
+        faqs = crud_faq.get_all_faqs(db)
+        for faq in faqs:
+            db.delete(faq)
+        db.commit()
+        return {"message": "Todas las FAQs han sido eliminadas correctamente."}
 
 
 class FacebookService:

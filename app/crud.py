@@ -352,6 +352,15 @@ class CRUDCiudad:
         db.refresh(db_ciudad)
         return db_ciudad
 
+    @staticmethod
+    def get_city_by_phone_prefix(db: Session, prefix: str) -> str:
+        """
+        Obtiene la ciudad basada en el prefijo del teléfono.
+        """
+        ciudad = db.query(Ciudad).filter(Ciudad.phone_prefix == prefix).first()
+        return ciudad.nombre if ciudad else None
+
+
     def add_products_to_city(
         self, db: Session, ciudad_id: int, productos_nombres: List[str]
     ):
@@ -384,6 +393,33 @@ class CRUDCiudad:
             .all()
         )
         return [{"nombre": p[0]} for p in productos]
+    
+    def delete_product_from_city(self, db: Session, ciudad_id: int, producto_id: int):
+        """
+        Elimina un producto específico de una ciudad.
+        """
+        producto_ciudad = (
+            db.query(ProductoCiudad)
+            .filter(ProductoCiudad.ciudad_id == ciudad_id, ProductoCiudad.producto_id == producto_id)
+            .first()
+        )
+        if producto_ciudad:
+            db.delete(producto_ciudad)
+            db.commit()
+            return True
+        return False
+    
+    def delete_all_products_from_city(self, db: Session, ciudad_id: int):
+        """
+        Elimina todos los productos asociados a una ciudad.
+        """
+        productos_ciudad = db.query(ProductoCiudad).filter(ProductoCiudad.ciudad_id == ciudad_id)
+        if productos_ciudad.count() > 0:
+            productos_ciudad.delete(synchronize_session=False)
+            db.commit()
+        return True
+
+
 
     @staticmethod
     def get_all_cities(db: Session):

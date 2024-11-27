@@ -109,14 +109,24 @@ async function loadSection(section) {
 }
 
 async function fetchCuentas() {
-    const response = await fetch(`${backendUrl}accounts/all`);
-    const cuentas = await response.json();
-    document.getElementById("cuentas-list").innerHTML = cuentas.map(cuenta => `
-        <p>${cuenta.nombre} (Page ID: ${cuenta.page_id}) 
-            <button onclick="deleteCuenta(${cuenta.id})">Eliminar</button>
-        </p>`).join("");
-}
+    try {
+        const response = await fetch(`${backendUrl}accounts/all`);
+        const cuentas = await response.json();
 
+        if (!cuentas.length) {
+            document.getElementById("cuentas-list").innerHTML = "<p>No hay cuentas activas.</p>";
+            return;
+        }
+
+        document.getElementById("cuentas-list").innerHTML = cuentas.map(cuenta => `
+            <p>${cuenta.nombre} (Page ID: ${cuenta.page_id}) 
+                <button onclick="deleteCuenta(${cuenta.id})">Eliminar</button>
+            </p>`).join("");
+    } catch (error) {
+        console.error("Error al cargar las cuentas:", error);
+        document.getElementById("cuentas-list").innerHTML = "<p>Error al cargar las cuentas.</p>";
+    }
+}
 async function createCuenta(event) {
     event.preventDefault();
     const pageid = document.getElementById("pageid").value;
@@ -147,19 +157,22 @@ async function deleteCuenta(cuentaId) {
 }
 
 
+
 async function fetchCiudades() {
     try {
         const response = await fetch(`${backendUrl}cities/all/`);
         const data = await response.json();
         const ciudades = data.ciudades;
-        if (!Array.isArray(ciudades)) {
-            console.error("La respuesta no es una lista:", ciudades);
-            document.getElementById("ciudades-list").innerHTML = "<p>Error al cargar ciudades.</p>";
+
+        if (!ciudades.length) {
+            document.getElementById("ciudades-list").innerHTML = "<p>No hay ciudades registradas.</p>";
             return;
         }
+
         document.getElementById("ciudades-list").innerHTML = ciudades.map(ciudad => `
             <p>ID: ${ciudad.id} - Nombre: ${ciudad.nombre} 
                 <button onclick="deleteCiudad(${ciudad.id})">Eliminar</button>
+                <button onclick="deleteProductosCiudad(${ciudad.id})">Eliminar Productos</button>
             </p>
         `).join("");
     } catch (error) {
@@ -168,15 +181,26 @@ async function fetchCiudades() {
     }
 }
 
-
-
 async function fetchProductosPorCiudad() {
     const ciudadId = document.getElementById("ciudadId").value;
-    const response = await fetch(`${backendUrl}cities/${ciudadId}/products`);
-    const productos = await response.json();
-    document.getElementById("productos-ciudad-list").innerHTML = productos.map(producto => `
-        <p>${producto.nombre}</p>
-    `).join("");
+    try {
+        const response = await fetch(`${backendUrl}cities/${ciudadId}/products`);
+        const productos = await response.json();
+
+        if (!productos.length) {
+            document.getElementById("productos-ciudad-list").innerHTML = "<p>No hay productos registrados para esta ciudad.</p>";
+            return;
+        }
+
+        document.getElementById("productos-ciudad-list").innerHTML = productos.map(producto => `
+            <p>${producto.nombre}
+                <button onclick="deleteProductoDeCiudad(${ciudadId}, '${producto.nombre}')">Eliminar</button>
+            </p>
+        `).join("");
+    } catch (error) {
+        console.error("Error al cargar productos por ciudad:", error);
+        document.getElementById("productos-ciudad-list").innerHTML = "<p>Error al cargar productos por ciudad.</p>";
+    }
 }
 
 async function addProductoToCiudad(event) {
@@ -471,4 +495,42 @@ async function deleteApiKey(name) {
     await fetch(`${backendUrl}apikeys/${name}`, { method: 'DELETE' });
     alert("API Key eliminada con éxito");
     fetchApiKeys();
+}
+
+async function deleteProductosCiudad(ciudadId) {
+    try {
+        const response = await fetch(`${backendUrl}cities/${ciudadId}/products/delete_all`, {
+            method: 'DELETE'
+        });
+
+        if (response.ok) {
+            alert("Todos los productos de la ciudad han sido eliminados con éxito.");
+            fetchCiudades(); // Refresca la lista de ciudades después de la eliminación
+        } else {
+            const errorData = await response.json();
+            throw new Error(`Error al eliminar productos: ${errorData.detail || response.status}`);
+        }
+    } catch (error) {
+        console.error("Error al eliminar productos de la ciudad:", error);
+        alert("No se pudieron eliminar los productos. Revisa la consola para más detalles.");
+    }
+}
+
+async function deleteProductoDeCiudad(ciudadId, productId) {
+    try {
+        const response = await fetch(`${backendUrl}cities/${ciudadId}/products/${productId}`, {
+            method: 'DELETE'
+        });
+
+        if (response.ok) {
+            alert(`El producto con ID "${productId}" fue eliminado de la ciudad con éxito.`);
+            fetchProductosPorCiudad(); // Refresca la lista de productos de la ciudad después de la eliminación
+        } else {
+            const errorData = await response.json();
+            throw new Error(`Error al eliminar producto: ${errorData.detail || response.status}`);
+        }
+    } catch (error) {
+        console.error("Error al eliminar producto de la ciudad:", error);
+        alert("No se pudo eliminar el producto. Revisa la consola para más detalles.");
+    }
 }
