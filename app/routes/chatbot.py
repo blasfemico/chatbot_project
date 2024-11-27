@@ -42,7 +42,8 @@ API_KEYS_FILE = "api_keys.json"
 processed_message_ids = set()
 
 class ChatbotService:
-
+    initial_message_sent = set() 
+    
     @staticmethod
     def extract_product_from_initial_message(initial_message: str) -> str:
         """
