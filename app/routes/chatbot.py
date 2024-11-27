@@ -264,7 +264,7 @@ class ChatbotService:
         if not ChatbotService.product_embeddings:
             logging.info("Cargando embeddings de productos por primera vez...")
             ChatbotService.load_product_embeddings(db)
-        producto, cantidad = ChatbotService.extract_product_and_quantity(question)
+        producto, cantidad = ChatbotService.extract_product_and_quantity(question, db)
         phone_number = ChatbotService.extract_phone_number(question)
 
         if producto:
@@ -447,6 +447,7 @@ class ChatbotService:
         producto_detectado = None
         productos = db.query(Producto).all()
         nombres_productos = [producto.nombre for producto in productos]
+
         text_embedding = ChatbotService.model.encode(text, convert_to_tensor=True)
         productos_embeddings = ChatbotService.model.encode(nombres_productos, convert_to_tensor=True)
         similarities = util.cos_sim(text_embedding, productos_embeddings)[0]
@@ -456,6 +457,7 @@ class ChatbotService:
 
         if max_similarity_value >= threshold:
             producto_detectado = nombres_productos[max_similarity_index]
+
         if cantidad_match:
             for cantidad_potencial in cantidad_match:
                 if producto_detectado:
@@ -468,6 +470,7 @@ class ChatbotService:
 
         logging.info(f"Producto detectado: {producto_detectado}, Cantidad detectada: {cantidad}")
         return producto_detectado, cantidad
+
 
 
 
@@ -700,15 +703,11 @@ class FacebookService:
                 if "message" in event and not event.get("message", {}).get("is_echo"):
                     sender_id = event["sender"]["id"]
                     message_text = event["message"].get("text", "").strip()
-                    
-                    # Obtener la API Key asociada al page_id
                     api_keys = FacebookService.load_api_keys()
                     api_key = api_keys.get(page_id)
                     if not api_key:
                         logging.error(f"No se encontró una API Key para la página con ID {page_id}")
                         continue
-
-                    # Obtener el perfil del usuario con la API Key específica
                     if not ChatbotService.user_contexts.get(cuenta_id, {}).get("nombre"):
                         user_profile = FacebookService.get_user_profile(sender_id, api_key)
                         if user_profile:
