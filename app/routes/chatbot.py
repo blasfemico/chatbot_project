@@ -23,9 +23,11 @@ from sentence_transformers import SentenceTransformer, util
 from datetime import date
 import re
 from json import JSONDecodeError
-import torch
+
 import logging
 from cachetools import TTLCache
+import re 
+from unidecode import unidecode  
 
 
 cache = TTLCache(maxsize=100, ttl=3600)
@@ -41,6 +43,11 @@ processed_message_ids = set()
 
 class ChatbotService:
 
+    @staticmethod
+    def sanitize_text(text: str) -> str:
+        sanitized_text = re.sub(r"[^a-zA-Z0-9\s]", "", unidecode(text)) 
+        return sanitized_text.lower()
+    
     @staticmethod
     def update_keywords_based_on_feedback(text: str):
         feedback_phrases = [
@@ -62,7 +69,6 @@ class ChatbotService:
         chat_history: str = "",
     ) -> str:
         ciudades_str = ", ".join(ciudades_disponibles)
-
         ChatbotService.update_keywords_based_on_feedback(question)
 
         feedback_phrases = [
@@ -231,14 +237,17 @@ class ChatbotService:
 
     @staticmethod
     async def ask_question(question: str, cuenta_id: int, db: Session, hacer_order=False) -> dict:
-        ChatbotService.update_keywords_based_on_feedback(question)  
+        sanitized_question = ChatbotService.sanitize_text(question)
+        logging.info(f"Pregunta original: {question}")
+        logging.info(f"Pregunta sanitizada: {sanitized_question}")
+        ChatbotService.update_keywords_based_on_feedback(question)
+
         feedback_phrases = [
             "muchas gracias", "no gracias", "ya no", "listo", "luego te hablo",
             "no necesito más", "ok", "gracias por info", "adios"
         ]
-        if any(phrase in question.lower() for phrase in feedback_phrases):
+        if any(phrase in sanitized_question for phrase in feedback_phrases):
             return {"respuesta": "Gracias por contactarnos. Si necesitas algo más, no dudes en escribirnos. ¡Que tengas un buen día!"}
-
 
         if cuenta_id not in ChatbotService.user_contexts:
             ChatbotService.user_contexts[cuenta_id] = {
@@ -259,13 +268,12 @@ class ChatbotService:
             if not context.get("nombre") or not context.get("apellido"):  
                 return {"respuesta": "Por favor, proporcione su nombre y apellido para completar la orden."}
             return await ChatbotService.create_order_from_context(cuenta_id, db)
-
-
         if not ChatbotService.product_embeddings:
             logging.info("Cargando embeddings de productos por primera vez...")
             ChatbotService.load_product_embeddings(db)
-        producto, cantidad = ChatbotService.extract_product_and_quantity(question, db)
-        phone_number = ChatbotService.extract_phone_number(question)
+
+        producto, cantidad = ChatbotService.extract_product_and_quantity(sanitized_question, db)  
+        phone_number = ChatbotService.extract_phone_number(sanitized_question)
 
         if producto:
             context["producto"] = producto
@@ -275,7 +283,6 @@ class ChatbotService:
             context["telefono"] = phone_number
 
         logging.info(f"Contexto actualizado para cuenta_id {cuenta_id}: {context}")
-
         if (
             context.get("producto") 
             and context.get("cantidad")
@@ -286,9 +293,8 @@ class ChatbotService:
             logging.info("Datos completos para crear la orden.")
             context["intencion_detectada"] = "crear_orden"
             return await ChatbotService.ask_question(question, cuenta_id, db, hacer_order=True)
-
         ciudades_disponibles = CRUDCiudad.get_all_cities(db)
-        ciudades_nombres = [ciudad.nombre for ciudad in ciudades_disponibles]
+        ciudades_nombres = [ciudad.nombre.lower() for ciudad in ciudades_disponibles]  
 
         productos_por_ciudad = {}
         for ciudad in ciudades_disponibles:
@@ -300,10 +306,10 @@ class ChatbotService:
             )
             productos_nombres = [producto.nombre for producto in productos]
             if productos_nombres:
-                productos_por_ciudad[ciudad.nombre] = productos_nombres
+                productos_por_ciudad[ciudad.nombre.lower()] = productos_nombres
 
         productos_por_ciudad_str = "\n".join(
-            [f"{ciudad}: {', '.join(productos)}" for ciudad, productos in productos_por_ciudad.items()]
+            [f"{ciudad.capitalize()}: {', '.join(productos)}" for ciudad, productos in productos_por_ciudad.items()]
         )
         intent_prompt = f"""
         Eres un asistente de ventas que ayuda a interpretar preguntas sobre disponibilidad de productos en ciudades específicas.
@@ -311,7 +317,7 @@ class ChatbotService:
         Disponemos de productos en las siguientes ciudades y productos asociados:
         {productos_por_ciudad_str}.
 
-        La pregunta del cliente es: "{question}"
+        La pregunta del cliente es: "{sanitized_question}"
 
         Responde estrictamente en JSON con:
         - "intent": "productos_ciudad" si la pregunta trata de disponibilidad de productos en una ciudad específica.
@@ -323,16 +329,15 @@ class ChatbotService:
 
         try:
             response = client.chat.completions.create(
-                model="gpt-4",
+                model="gpt-4o",
                 messages=[{"role": "user", "content": intent_prompt}],
-                max_tokens=100,
+                max_tokens=200,
             )
             raw_response = response.choices[0].message.content.strip()
             intent_data = json.loads(raw_response)
         except (JSONDecodeError, Exception) as e:
             logging.error(f"Error al identificar intención: {str(e)}")
             intent_data = {"intent": "otro"}
-
         if intent_data.get("intent") == "listar_productos":
             context["intencion_detectada"] = "listar_productos"
             productos = crud_producto.get_productos_by_cuenta(db, cuenta_id)
@@ -341,30 +346,22 @@ class ChatbotService:
             return {"respuesta": db_response}
 
         elif intent_data.get("intent") == "productos_ciudad" and intent_data.get("ciudad"):
-            ciudad_nombre = intent_data["ciudad"]
-            ciudad = db.query(Ciudad).filter(Ciudad.nombre.ilike(ciudad_nombre)).first()
-            if ciudad:
-                productos = (
-                    db.query(Producto)
-                    .join(ProductoCiudad)
-                    .filter(ProductoCiudad.ciudad_id == ciudad.id)
-                    .all()
-                )
-                productos_nombres = [producto.nombre for producto in productos]
+            ciudad_nombre = intent_data["ciudad"].lower()
+            if ciudad_nombre in productos_por_ciudad:
+                productos_nombres = productos_por_ciudad[ciudad_nombre]
                 db_response = (
-                    f"Los productos disponibles en {ciudad_nombre} son: {', '.join(productos_nombres)}."
+                    f"Los productos disponibles en {ciudad_nombre.capitalize()} son: {', '.join(productos_nombres)}."
                     if productos_nombres
-                    else f"No hay productos disponibles en {ciudad_nombre}."
+                    else f"No hay productos disponibles en {ciudad_nombre.capitalize()}."
                 )
             else:
-                db_response = f"Lo siento, pero no tenemos productos disponibles en la ciudad {ciudad_nombre}."
-
+                db_response = f"Lo siento, pero no tenemos productos disponibles en la ciudad {ciudad_nombre.capitalize()}."
 
         elif intent_data.get("intent") == "listar_ciudades":
-            db_response = f"Disponemos de productos en las siguientes ciudades:\n{productos_por_ciudad_str}."
+            db_response = f"Disponemos de productos en las siguientes ciudades:\n{', '.join(productos_por_ciudad.keys())}."
 
         else:
-            faq_answer = await ChatbotService.search_faq_in_db(question, db)
+            faq_answer = await ChatbotService.search_faq_in_db(sanitized_question, db)
             productos = crud_producto.get_productos_by_cuenta(db, cuenta_id)
             db_response = "\n".join(
                 [f"{prod['producto']}: Precio {prod['precio']} pesos" for prod in productos]
@@ -373,16 +370,17 @@ class ChatbotService:
                 db_response = f"{faq_answer}\n\n{db_response}"
         try:
             respuesta = ChatbotService.generate_humanlike_response(
-                question, db_response, ciudades_nombres
+                sanitized_question, db_response, list(productos_por_ciudad.keys())
             )
         except Exception as e:
             logging.error(f"Error al generar respuesta humanlike: {str(e)}")
             respuesta = "Hubo un problema al procesar tu solicitud. Por favor, intenta de nuevo más tarde."
-            
+
         if not respuesta or respuesta == "Perdón, no entendí tu pregunta. ¿Podrías reformularla?":
-            return {"respuesta": "Perdón, no entendí tu pregunta. ¿Podrías reformularla?"}
+            return {"respuesta": "Lo siento, no entendí tu pregunta. ¿Podrías repetirla o hacerla de otra manera?"}
 
         return {"respuesta": respuesta}
+
 
 
     @staticmethod

@@ -21,3 +21,4 @@ pandas
 openpyxl
 cachetools
 redis
+unidecode
