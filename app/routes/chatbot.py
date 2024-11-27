@@ -40,6 +40,20 @@ API_KEYS_FILE = "api_keys.json"
 processed_message_ids = set()
 
 class ChatbotService:
+
+    @staticmethod
+    def update_keywords_based_on_feedback(text: str):
+        feedback_phrases = [
+            "Muchas gracias", "No gracias", "ya no", "listo", "luego te hablo",
+            "no necesito más", "ok", "gracias por info", "adios"
+        ]
+        for phrase in feedback_phrases:
+            if phrase.lower() in text.lower():
+                new_keyword = phrase.strip().lower()
+                logging.info(f"Nueva palabra clave detectada para cierre: {new_keyword}")
+                with open("keywords.txt", "a") as file:
+                    file.write(f"{new_keyword}\n")
+
     @staticmethod
     def generate_humanlike_response(
         question: str,
@@ -48,6 +62,11 @@ class ChatbotService:
         chat_history: str = "",
     ) -> str:
         ciudades_str = ", ".join(ciudades_disponibles)
+
+        if ChatbotService.is_conversation_over_dynamic(question):
+            ChatbotService.update_keywords_based_on_feedback(question)  
+            return "Gracias por contactarnos. Si necesitas algo más, no dudes en escribirnos. ¡Que tengas un buen día!"
+
         prompt = f"""
     Eres una asistente de ventas que responde preguntas de clientes únicamente con información basada en los datos de productos y precios disponibles en la base de datos. 
     No inventes detalles ni proporciones asesoramiento médico, y no sugieras consultar a un profesional de la salud. Limita tus respuestas solo a la información de productos en la base de datos.
@@ -205,6 +224,12 @@ class ChatbotService:
 
     @staticmethod
     async def ask_question(question: str, cuenta_id: int, db: Session, hacer_order=False) -> dict:
+        if ChatbotService.is_conversation_over_dynamic(question):
+            ChatbotService.update_keywords_based_on_feedback(question)  
+            return {"respuesta": "Gracias por contactarnos. Si necesitas algo más, no dudes en escribirnos. ¡Que tengas un buen día!"}
+        context = ChatbotService.user_contexts.get(cuenta_id, {})
+        logging.info(f"Contexto inicial para cuenta_id {cuenta_id}: {context}")
+        
         if cuenta_id not in ChatbotService.user_contexts:
             ChatbotService.user_contexts[cuenta_id] = {
                 "producto": None,
@@ -397,42 +422,34 @@ class ChatbotService:
 
 
     @staticmethod
-    def extract_product_and_quantity(text: str) -> tuple:
+    def extract_product_and_quantity(text: str, db: Session) -> tuple:
         cantidad_match = re.findall(r"\b(\d+)\b", text)
         cantidad = None
-
-        phone_number = ChatbotService.extract_phone_number(text)
-        if phone_number:
-            cantidad_match = [num for num in cantidad_match if num not in phone_number]
-
-        if cantidad_match:
-            cantidad = int(cantidad_match[0])
-
-        if not ChatbotService.product_embeddings:
-            logging.warning("Los embeddings de productos no están cargados.")
-            return None, cantidad
-
+        producto_detectado = None
+        productos = db.query(Producto).all()
+        nombres_productos = [producto.nombre for producto in productos]
         text_embedding = ChatbotService.model.encode(text, convert_to_tensor=True)
+        productos_embeddings = ChatbotService.model.encode(nombres_productos, convert_to_tensor=True)
+        similarities = util.cos_sim(text_embedding, productos_embeddings)[0]
+        max_similarity_index = similarities.argmax().item()
+        max_similarity_value = similarities[max_similarity_index]
+        threshold = 0.5 
 
-        try:
-            product_embeddings_tensor = torch.stack(
-                [torch.tensor(embedding) for embedding in ChatbotService.product_embeddings.values()]
-            )
-            similarities = util.cos_sim(text_embedding, product_embeddings_tensor)
-            max_similarity_index = similarities.argmax().item()
-            max_similarity_value = similarities[0, max_similarity_index].item()
-            threshold = 0.4
+        if max_similarity_value >= threshold:
+            producto_detectado = nombres_productos[max_similarity_index]
+        if cantidad_match:
+            for cantidad_potencial in cantidad_match:
+                if producto_detectado:
+                    stock_producto = next(
+                        (prod.stock for prod in productos if prod.nombre == producto_detectado), None
+                    )
+                    if stock_producto and int(cantidad_potencial) <= stock_producto:
+                        cantidad = int(cantidad_potencial)
+                        break
 
-            producto = None
-            if max_similarity_value >= threshold:
-                producto = list(ChatbotService.product_embeddings.keys())[max_similarity_index]
+        logging.info(f"Producto detectado: {producto_detectado}, Cantidad detectada: {cantidad}")
+        return producto_detectado, cantidad
 
-            logging.info(f"Producto detectado: {producto} con similitud de {max_similarity_value}")
-            return producto, cantidad
-
-        except Exception as e:
-            logging.error(f"Error al procesar embeddings: {str(e)}")
-            return None, cantidad
 
 
 
