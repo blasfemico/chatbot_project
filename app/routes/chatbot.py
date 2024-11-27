@@ -319,10 +319,11 @@ class ChatbotService:
                 db_response = (
                     f"Los productos disponibles en {ciudad_nombre} son: {', '.join(productos_nombres)}."
                     if productos_nombres
-                    else f"No hay productos en {ciudad_nombre}."
+                    else f"No hay productos disponibles en {ciudad_nombre}."
                 )
             else:
-                db_response = f"No se encontró información para la ciudad {ciudad_nombre}."
+                db_response = f"Lo siento, pero no tenemos productos disponibles en la ciudad {ciudad_nombre}."
+
 
         elif intent_data.get("intent") == "listar_ciudades":
             db_response = f"Disponemos de productos en las siguientes ciudades:\n{productos_por_ciudad_str}."
