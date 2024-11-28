@@ -76,6 +76,7 @@ class ChatbotService:
     def generate_humanlike_response(
         question: str,
         db_response: str,
+        sender_id: str,
         ciudades_disponibles: list,
         chat_history: str = "",
         primer_producto: str = "Acxion", 
@@ -83,6 +84,7 @@ class ChatbotService:
     ) -> str:
         ciudades_str = ", ".join(ciudades_disponibles)
         ChatbotService.update_keywords_based_on_feedback(question)
+        initial_message = ChatbotService.initial_message_sent.get(sender_id, False)
 
         feedback_phrases = [
             "muchas gracias", "no gracias", "ya no", "listo", "luego te hablo",
@@ -202,6 +204,11 @@ class ChatbotService:
         if len(clean_response) < 10 or "No disponible" in clean_response:
             logging.info("Respuesta detectada como poco clara, solicitando aclaración al usuario.")
             return "Lo siento, no entendí completamente tu pregunta. ¿Podrías repetirla o hacerla de otra manera?"
+
+        if not initial_message:
+            ChatbotService.initial_message_sent[sender_id] = True  
+            logging.info(f"Mensaje inicial enviado para sender_id {sender_id}. Estado actualizado.")
+
 
         return clean_response
     
