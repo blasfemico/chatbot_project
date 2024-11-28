@@ -48,21 +48,23 @@ async function loadSection(section) {
                 <form onsubmit="createProductos(event)">
                     <textarea id="productosData" placeholder="ID de la Cuenta, Nombre del Producto, Precio por línea" required></textarea>
                     <button type="submit">Crear Productos</button>
+                    
                 </form>
             `;
             break;
-        case "faqs":
-            content.innerHTML = `
-                <h2>Gestionar FAQs</h2>
-                <button onclick="fetchFaqs()">Ver FAQs</button>
-                <div id="faqs-list"></div>
-                <h3>Crear FAQs en Bloque</h3>
-                <form onsubmit="createFaqsBulk(event)">
-                    <textarea id="faqsData" placeholder="Pregunta, Respuesta por línea" required></textarea>
-                    <button type="submit">Crear FAQs</button>
-                </form>
-            `;
-             break;
+            case "faqs":
+                content.innerHTML = `
+                    <h2>Gestionar FAQs</h2>
+                    <button onclick="fetchFaqs()">Ver FAQs</button>
+                    <button onclick="deleteAllFaqs()">Eliminar Todas las FAQs</button>
+                    <div id="faqs-list"></div>
+                    <h3>Crear FAQs en Bloque</h3>
+                    <form onsubmit="createFaqsBulk(event)">
+                        <textarea id="faqsData" placeholder="Pregunta, Respuesta por línea" required></textarea>
+                        <button type="submit">Crear FAQs</button>
+                    </form>
+                `;
+                break;
             
         case "ordenes":
             content.innerHTML = `
@@ -290,11 +292,26 @@ async function createProductos(event) {
     fetchProductos();
 }
 
-async function deleteProducto(productoId) {
-    await fetch(`${backendUrl}products/${productoId}`, { method: 'DELETE' });
-    alert("Producto eliminado con éxito");
-    fetchProductos();
+async function deleteProducto(cuentaId, productoId) {
+    try {
+        const response = await fetch(`${backendUrl}accounts/${cuentaId}/products/${productoId}`, {
+            method: 'DELETE'
+        });
+
+        if (response.ok) {
+            alert("Producto eliminado con éxito.");
+            fetchProductos(); // Refresca la lista de productos
+        } else {
+            const errorData = await response.json();
+            throw new Error(`Error al eliminar producto: ${errorData.detail || response.status}`);
+        }
+    } catch (error) {
+        console.error("Error al eliminar producto:", error);
+        alert("No se pudo eliminar el producto. Verifica la consola para más detalles.");
+    }
 }
+
+
 async function fetchFaqs() {
     const response = await fetch(`${backendUrl}faq/all`);
     const faqs = await response.json();
@@ -532,5 +549,24 @@ async function deleteProductoDeCiudad(ciudadId, productId) {
     } catch (error) {
         console.error("Error al eliminar producto de la ciudad:", error);
         alert("No se pudo eliminar el producto. Revisa la consola para más detalles.");
+    }
+}
+
+async function deleteAllFaqs() {
+    try {
+        const response = await fetch(`${backendUrl}faq/delete_all/`, {
+            method: 'DELETE'
+        });
+
+        if (response.ok) {
+            alert("Todas las FAQs han sido eliminadas con éxito.");
+            fetchFaqs(); 
+        } else {
+            const errorData = await response.json();
+            throw new Error(`Error al eliminar FAQs: ${errorData.detail || response.status}`);
+        }
+    } catch (error) {
+        console.error("Error al eliminar FAQs:", error);
+        alert("No se pudieron eliminar las FAQs. Verifica la consola para más detalles.");
     }
 }
