@@ -518,7 +518,7 @@ class ChatbotService:
 
 
     @staticmethod
-    def extract_products_and_quantities(text: str, db: Session) -> list:
+    def extract_product_and_quantity(text: str, db: Session) -> list:
         productos_detectados = []
         productos = db.query(Producto).all()
         nombres_productos = [producto.nombre for producto in productos]
