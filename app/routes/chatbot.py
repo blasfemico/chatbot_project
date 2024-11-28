@@ -278,7 +278,7 @@ class ChatbotService:
     model = SentenceTransformer("all-MiniLM-L6-v2")
 
     @staticmethod
-    async def ask_question(question: str, cuenta_id: int, db: Session, hacer_order=False) -> dict:
+    async def ask_question(question: str, cuenta_id: int, sender_id: int, db: Session, hacer_order=False) -> dict:
         sanitized_question = ChatbotService.sanitize_text(question)
         logging.info(f"Pregunta original: {question}")
         logging.info(f"Pregunta sanitizada: {sanitized_question}")
@@ -291,10 +291,9 @@ class ChatbotService:
         if any(phrase in sanitized_question for phrase in feedback_phrases):
             return {"respuesta": "Gracias por contactarnos. Si necesitas algo más, no dudes en escribirnos. ¡Que tengas un buen día!"}
 
-        if cuenta_id not in ChatbotService.user_contexts:
-            ChatbotService.user_contexts[cuenta_id] = {
-                "producto": None,
-                "cantidad": None,
+        if sender_id not in ChatbotService.user_contexts:
+            ChatbotService.user_contexts[sender_id] = {
+                "productos": [],  
                 "telefono": None,
                 "nombre": None,
                 "apellido": None,
@@ -302,14 +301,28 @@ class ChatbotService:
                 "intencion_detectada": None,
             }
 
-        context = ChatbotService.user_contexts[cuenta_id]
-        logging.info(f"Contexto inicial para cuenta_id {cuenta_id}: {context}")
+        productos = ChatbotService.extract_products_and_quantities(sanitized_question, db) 
+
+        if productos:
+            for producto in productos:
+
+                existing_product = next(
+                    (p for p in context["productos"] if p["producto"] == producto["producto"]),
+                    None
+                )
+                if existing_product:
+                    existing_product["cantidad"] += producto["cantidad"] 
+                else:
+                    context["productos"].append(producto)  
+
+        context = ChatbotService.user_contexts[sender_id]
+        logging.info(f"Contexto inicial para cuenta_id {sender_id}: {context}")
         if hacer_order:
             if not context.get("telefono"):  
                 return {"respuesta": "Por favor, proporcione su número de teléfono para completar la orden."}
             if not context.get("nombre") or not context.get("apellido"):  
                 return {"respuesta": "Por favor, proporcione su nombre y apellido para completar la orden."}
-            return await ChatbotService.create_order_from_context(cuenta_id, db)
+            return await ChatbotService.create_order_from_context(sender_id, db)
         if not ChatbotService.product_embeddings:
             logging.info("Cargando embeddings de productos por primera vez...")
             ChatbotService.load_product_embeddings(db)
@@ -447,30 +460,36 @@ class ChatbotService:
         logging.info(f"Creando orden con el contexto: {context}")
         telefono = context.get("telefono")
         if telefono and not context.get("ciudad"):
-            location_code = telefono[:3]  
+            location_code = telefono[:3]
             ciudad = CRUDCiudad.get_city_by_phone_prefix(db, location_code)
             if ciudad:
                 context["ciudad"] = ciudad
             else:
-                context["ciudad"] = "N/A"  
+                context["ciudad"] = "N/A"
 
-        order_data = OrderCreate(
-            phone=telefono,
-            email=None,
-            address=None,
-            producto=context["producto"],
-            cantidad_cajas=context["cantidad"],
-            ciudad=context["ciudad"], 
-            ad_id=context.get("ad_id", "N/A"),
-        )
         nombre = context.get("nombre", "Cliente")
         apellido = context.get("apellido", "Apellido")
 
+        responses = []  
+
         try:
-            logging.info(f"Llamando a create_order con: order_data={order_data}, nombre={nombre}, apellido={apellido}")
-            result = await OrderService.create_order(order_data, db, nombre, apellido)
-            logging.info(f"Resultado de creación de la orden: {result}")
-            
+            for producto in context.get("productos", []): 
+                order_data = OrderCreate(
+                    phone=telefono,
+                    email=None,
+                    address=None,
+                    producto=producto["producto"], 
+                    cantidad_cajas=producto["cantidad"],  
+                    ciudad=context["ciudad"],
+                    ad_id=context.get("ad_id", "N/A"),
+                )
+                try:
+                    result = await OrderService.create_order(order_data, db, nombre, apellido)
+                    responses.append(result["message"])
+                except Exception as e:
+                    responses.append(f"Error al procesar el pedido de {producto['producto']}: {str(e)}.")
+
+       
             response_text = (
                 f"✅ Su pedido ya quedó programado!\n\n"
                 f"El repartidor sale de 8 AM a 9 PM él le marca y le manda un Whatsapp para confirmar la entrega 🛵\n\n"
@@ -479,15 +498,14 @@ class ChatbotService:
                 f"Cualquier otra duda aquí estoy para servirle 🤗"
             )
             
-            del ChatbotService.user_contexts[cuenta_id]  # Limpia el contexto después de crear la orden
-            return {"respuesta": response_text}
+            del ChatbotService.user_contexts[cuenta_id]
+            return {"respuesta": response_text + "\n\n" + "\n".join(responses)} 
         except HTTPException as e:
             logging.error(f"Error HTTP al crear la orden: {str(e)}")
             return {"respuesta": "Hubo un problema al crear tu orden. Inténtalo de nuevo más tarde."}
         except Exception as e:
             logging.error(f"Error inesperado al crear la orden: {str(e)}")
             return {"respuesta": "Hubo un error técnico al crear tu orden. Por favor, inténtalo más tarde."}
-
 
     
     @staticmethod
@@ -500,28 +518,31 @@ class ChatbotService:
 
 
     @staticmethod
-    def extract_product_and_quantity(text: str, db: Session) -> tuple:
-        cantidad_match = re.findall(r"\b(\d+)\b", text)
-        cantidad = None
-        producto_detectado = None
+    def extract_product_and_quantity(text: str, db: Session) -> list:
+        productos_detectados = []
         productos = db.query(Producto).all()
         nombres_productos = [producto.nombre for producto in productos]
-
+        cantidad_matches = re.findall(r"(\d+)\s*cajas?\s*de\s*(\w+)", text, re.IGNORECASE)
+        for match in cantidad_matches:
+            cantidad, producto = int(match[0]), match[1]
+            if producto in nombres_productos:
+                productos_detectados.append({"producto": producto, "cantidad": cantidad})
         text_embedding = ChatbotService.model.encode(text, convert_to_tensor=True)
         productos_embeddings = ChatbotService.model.encode(nombres_productos, convert_to_tensor=True)
         similarities = util.cos_sim(text_embedding, productos_embeddings)[0]
+
         max_similarity_index = similarities.argmax().item()
         max_similarity_value = similarities[max_similarity_index]
-        threshold = 0.5 
-
+        threshold = 0.5
         if max_similarity_value >= threshold:
             producto_detectado = nombres_productos[max_similarity_index]
+            cantidad_match = re.findall(r"\b(\d+)\b", text)
+            cantidad = int(cantidad_match[0]) if cantidad_match else 1  
+            productos_detectados.append({"producto": producto_detectado, "cantidad": cantidad})
 
-        if cantidad_match:
-            cantidad = int(cantidad_match[0])  
+        logging.info(f"Productos detectados: {productos_detectados}")
+        return productos_detectados
 
-        logging.info(f"Producto detectado: {producto_detectado}, Cantidad detectada: {cantidad}")
-        return producto_detectado, cantidad
 
 
 
@@ -754,14 +775,13 @@ class FacebookService:
                 logging.warning(f"No se encontró ninguna cuenta para page_id {page_id}")
                 continue
 
-            cuenta_id = cuenta.id
             for event in entry.get("messaging", []):
                 message_id = event.get("message", {}).get("mid")
                 if message_id in processed_message_ids:
                     logging.info(f"Mensaje duplicado detectado: {message_id}. Ignorando.")
-                    continue 
+                    continue
 
-                processed_message_ids.add(message_id) 
+                processed_message_ids.add(message_id)
 
                 if "message" in event and not event.get("message", {}).get("is_echo"):
                     sender_id = event["sender"]["id"]
@@ -771,18 +791,25 @@ class FacebookService:
                     if not api_key:
                         logging.error(f"No se encontró una API Key para la página con ID {page_id}")
                         continue
-                    if not ChatbotService.user_contexts.get(cuenta_id, {}).get("nombre"):
+                    
+                    # Cambiar el contexto para usar sender_id
+                    if not ChatbotService.user_contexts.get(sender_id):
                         user_profile = FacebookService.get_user_profile(sender_id, api_key)
                         if user_profile:
-                            ChatbotService.user_contexts.setdefault(cuenta_id, {}).update({
+                            ChatbotService.user_contexts[sender_id] = {
                                 "nombre": user_profile.get("first_name"),
                                 "apellido": user_profile.get("last_name"),
-                            })
+                                "productos": [],  # Inicializa lista de productos
+                                "telefono": None,
+                                "ad_id": None,
+                                "intencion_detectada": None,
+                            }
 
                     try:
+                        # Llamar a ask_question con sender_id
                         response_data = await ChatbotService.ask_question(
                             question=message_text,
-                            cuenta_id=cuenta_id,
+                            sender_id=sender_id,  # Se usa sender_id aquí
                             db=db,
                         )
                         response_text = response_data.get("respuesta", "Lo siento, no entendí tu mensaje.")
@@ -792,6 +819,7 @@ class FacebookService:
                     except Exception as e:
                         logging.error(f"Error procesando el mensaje: {str(e)}")
         return {"status": "ok"}
+
 
 
 
