@@ -519,24 +519,25 @@ async function deleteApiKey(name) {
     fetchApiKeys();
 }
 
-async function deleteProductosCiudad(ciudadId) {
+async function deleteProductoDeCiudad(ciudadId, productId) {
     try {
-        const response = await fetch(`${backendUrl}cities/${ciudadId}/products/delete_all`, {
+        const response = await fetch(`${backendUrl}cities/${ciudadId}/products/${productId}`, {
             method: 'DELETE'
         });
 
         if (response.ok) {
-            alert("Todos los productos de la ciudad han sido eliminados con éxito.");
-            fetchCiudades(); // Refresca la lista de ciudades después de la eliminación
+            alert(`El producto con ID "${productId}" fue eliminado de la ciudad con éxito.`);
+            fetchProductosPorCiudad(); 
         } else {
             const errorData = await response.json();
-            throw new Error(`Error al eliminar productos: ${errorData.detail || response.status}`);
+            throw new Error(`Error al eliminar producto: ${errorData.detail || response.status}`);
         }
     } catch (error) {
-        console.error("Error al eliminar productos de la ciudad:", error);
-        alert("No se pudieron eliminar los productos. Revisa la consola para más detalles.");
+        console.error("Error al eliminar producto de la ciudad:", error);
+        alert("No se pudo eliminar el producto. Revisa la consola para más detalles.");
     }
 }
+
 
 async function deleteProductoDeCiudad(ciudadId, productId) {
     try {

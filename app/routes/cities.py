@@ -47,7 +47,7 @@ def delete_product_from_city(
     city_id: int, product_id: int, db: Session = Depends(get_db)
 ):
     """
-    Elimina un producto específico de una ciudad.
+    Elimina un producto específico de una ciudad usando su ID.
     """
     try:
         result = crud.CRUDCiudad().delete_product_from_city(
@@ -60,13 +60,14 @@ def delete_product_from_city(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @router.delete("/cities/{city_id}/products/delete_all", response_model=dict)
 def delete_all_products_from_city(city_id: int, db: Session = Depends(get_db)):
     """
     Elimina todos los productos asociados a una ciudad.
     """
-    try:
-        result = crud.CRUDCiudad().delete_all_products_from_city(db=db, ciudad_id=city_id)
+    result = crud.CRUDCiudad().delete_all_products_from_city(db=db, ciudad_id=city_id)
+    if result["deleted_count"] > 0:
         return {"message": f"Todos los productos de la ciudad con ID {city_id} han sido eliminados"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    else:
+        return {"message": f"No se encontraron productos para eliminar en la ciudad con ID {city_id}"}

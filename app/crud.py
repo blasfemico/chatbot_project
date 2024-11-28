@@ -413,11 +413,15 @@ class CRUDCiudad:
         """
         Elimina todos los productos asociados a una ciudad.
         """
-        productos_ciudad = db.query(ProductoCiudad).filter(ProductoCiudad.ciudad_id == ciudad_id)
-        if productos_ciudad.count() > 0:
-            productos_ciudad.delete(synchronize_session=False)
-            db.commit()
-        return True
+        try:
+            productos_ciudad = db.query(ProductoCiudad).filter(ProductoCiudad.ciudad_id == ciudad_id)
+            count = productos_ciudad.count() 
+            if count > 0:
+                productos_ciudad.delete(synchronize_session=False)
+                db.commit()
+            return {"deleted_count": count}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
 
 
 
