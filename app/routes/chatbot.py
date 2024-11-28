@@ -278,7 +278,7 @@ class ChatbotService:
     model = SentenceTransformer("all-MiniLM-L6-v2")
 
     @staticmethod
-    async def ask_question(question: str, sender_id: str, db: Session, hacer_order=False) -> dict:
+    async def ask_question(question: str, sender_id: str,cuenta_id: int, db: Session, hacer_order=False) -> dict:
         sanitized_question = ChatbotService.sanitize_text(question)
         logging.info(f"Pregunta original: {question}")
         logging.info(f"Pregunta sanitizada: {sanitized_question}")
@@ -290,8 +290,12 @@ class ChatbotService:
         ]
         if any(phrase in sanitized_question for phrase in feedback_phrases):
             return {"respuesta": "Gracias por contactarnos. Si necesitas algo más, no dudes en escribirnos. ¡Que tengas un buen día!"}
+        
         if sender_id not in ChatbotService.user_contexts:
-            ChatbotService.user_contexts[sender_id] = {
+          ChatbotService.user_contexts[sender_id] = {}
+
+        if cuenta_id not in ChatbotService.user_contexts[sender_id]:
+            ChatbotService.user_contexts[sender_id][cuenta_id] = {
                 "productos": [],
                 "telefono": None,
                 "nombre": None,
@@ -300,8 +304,9 @@ class ChatbotService:
                 "intencion_detectada": None,
             }
 
-        context = ChatbotService.user_contexts[sender_id]
-        logging.info(f"Contexto inicial para sender_id {sender_id}: {context}")
+        context = ChatbotService.user_contexts[sender_id][cuenta_id]
+        logging.info(f"Contexto inicial para sender_id {sender_id}, cuenta_id {cuenta_id}: {context}")
+
         productos = ChatbotService.extract_product_and_quantity(sanitized_question, db)
         for producto in productos:
             ChatbotService.update_context(sender_id, producto["producto"], producto["cantidad"])
@@ -311,7 +316,7 @@ class ChatbotService:
                 return {"respuesta": "Por favor, proporcione su número de teléfono para completar la orden."}
             if not context.get("nombre") or not context.get("apellido"):  
                 return {"respuesta": "Por favor, proporcione su nombre y apellido para completar la orden."}
-            return await ChatbotService.create_order_from_context(sender_id, db)
+            return await ChatbotService.create_order_from_context(sender_id, cuenta_id, db)
 
         if not ChatbotService.product_embeddings:
             logging.info("Cargando embeddings de productos por primera vez...")
@@ -427,12 +432,14 @@ class ChatbotService:
 
 
     @staticmethod
-    def update_context(sender_id: str, producto: str, cantidad: int):
-        # Crear contexto si no existe para este sender_id
+    def update_context(sender_id: str, cuenta_id: int, producto: str, cantidad: int):
         if sender_id not in ChatbotService.user_contexts:
-            ChatbotService.user_contexts[sender_id] = {"productos": []}
+            ChatbotService.user_contexts[sender_id] = {}
 
-        context = ChatbotService.user_contexts[sender_id]
+        if cuenta_id not in ChatbotService.user_contexts[sender_id]:
+            ChatbotService.user_contexts[sender_id][cuenta_id] = {"productos": []}
+
+        context = ChatbotService.user_contexts[sender_id][cuenta_id]
         productos = context["productos"]
 
         # Verificar si el producto ya existe en el contexto
@@ -441,21 +448,22 @@ class ChatbotService:
         )
 
         if existing_product:
-            existing_product["cantidad"] += cantidad  # Actualizar cantidad
+            existing_product["cantidad"] += cantidad
         else:
-            productos.append({"producto": producto, "cantidad": cantidad})  # Agregar nuevo producto
+            productos.append({"producto": producto, "cantidad": cantidad})
 
-        logging.info(f"Contexto actualizado para sender_id {sender_id}: {context}")
+        logging.info(f"Contexto actualizado para sender_id {sender_id}, cuenta_id {cuenta_id}: {context}")
+
 
 
 
     @staticmethod
-    async def create_order_from_context(sender_id: int, db: Session) -> dict:
+    async def create_order_from_context(sender_id: str, cuenta_id: int, db: Session) -> dict:
         """
         Crea la orden utilizando el contexto actual y detecta la ciudad automáticamente
         si no se encuentra explícita en el contexto.
         """
-        context = ChatbotService.user_contexts.get(sender_id)
+        context = ChatbotService.user_contexts.get(sender_id, {}).get(cuenta_id)
         if not context or not context.get("productos"):
             return {"respuesta": "No hay productos en tu orden. Por favor, agrega productos antes de confirmar."}
 
@@ -786,6 +794,7 @@ class FacebookService:
                 logging.warning(f"No se encontró ninguna cuenta para page_id {page_id}")
                 continue
 
+            cuenta_id = cuenta.id  # Identificador de la cuenta
             for event in entry.get("messaging", []):
                 message_id = event.get("message", {}).get("mid")
                 if message_id in processed_message_ids:
@@ -795,26 +804,35 @@ class FacebookService:
                 processed_message_ids.add(message_id) 
 
                 if "message" in event and not event.get("message", {}).get("is_echo"):
-                    sender_id = event["sender"]["id"]
+                    sender_id = event["sender"]["id"]  # Identificador del usuario
                     message_text = event["message"].get("text", "").strip()
                     api_keys = FacebookService.load_api_keys()
                     api_key = api_keys.get(page_id)
                     if not api_key:
                         logging.error(f"No se encontró una API Key para la página con ID {page_id}")
                         continue
-                    if not ChatbotService.user_contexts.get(sender_id, {}).get("nombre"):
+
+                    # Manejo del contexto para la combinación sender_id + cuenta_id
+                    if not ChatbotService.user_contexts.get(sender_id, {}).get(cuenta_id):
                         user_profile = FacebookService.get_user_profile(sender_id, api_key)
                         if user_profile:
                             ChatbotService.user_contexts.setdefault(sender_id, {}).update({
-                                "nombre": user_profile.get("first_name"),
-                                "apellido": user_profile.get("last_name"),
+                                cuenta_id: {
+                                    "nombre": user_profile.get("first_name"),
+                                    "apellido": user_profile.get("last_name"),
+                                    "productos": [],
+                                    "telefono": None,
+                                    "ad_id": None,
+                                    "intencion_detectada": None,
+                                }
                             })
 
                     try:
-                        # Llamada actualizada con `sender_id`
+                        # Llamada a ask_question con ambos IDs
                         response_data = await ChatbotService.ask_question(
                             question=message_text,
                             sender_id=sender_id,
+                            cuenta_id=cuenta_id,
                             db=db,
                         )
                         response_text = response_data.get("respuesta", "Lo siento, no entendí tu mensaje.")
@@ -824,6 +842,7 @@ class FacebookService:
                     except Exception as e:
                         logging.error(f"Error procesando el mensaje: {str(e)}")
         return {"status": "ok"}
+
 
 
 
