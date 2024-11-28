@@ -200,9 +200,10 @@ async function fetchProductosPorCiudad() {
 
         document.getElementById("productos-ciudad-list").innerHTML = productos.map(producto => `
             <p>${producto.nombre}
-                <button onclick="deleteProductoDeCiudad(${ciudadId}, '${producto.nombre}')">Eliminar</button>
+                <button onclick="deleteProductoDeCiudad(${ciudadId}, ${producto.id})">Eliminar</button>
             </p>
         `).join("");
+        
     } catch (error) {
         console.error("Error al cargar productos por ciudad:", error);
         document.getElementById("productos-ciudad-list").innerHTML = "<p>Error al cargar productos por ciudad.</p>";
