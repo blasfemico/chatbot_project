@@ -786,7 +786,6 @@ class FacebookService:
                 logging.warning(f"No se encontró ninguna cuenta para page_id {page_id}")
                 continue
 
-            cuenta_id = cuenta.id
             for event in entry.get("messaging", []):
                 message_id = event.get("message", {}).get("mid")
                 if message_id in processed_message_ids:
@@ -803,18 +802,19 @@ class FacebookService:
                     if not api_key:
                         logging.error(f"No se encontró una API Key para la página con ID {page_id}")
                         continue
-                    if not ChatbotService.user_contexts.get(cuenta_id, {}).get("nombre"):
+                    if not ChatbotService.user_contexts.get(sender_id, {}).get("nombre"):
                         user_profile = FacebookService.get_user_profile(sender_id, api_key)
                         if user_profile:
-                            ChatbotService.user_contexts.setdefault(cuenta_id, {}).update({
+                            ChatbotService.user_contexts.setdefault(sender_id, {}).update({
                                 "nombre": user_profile.get("first_name"),
                                 "apellido": user_profile.get("last_name"),
                             })
 
                     try:
+                        # Llamada actualizada con `sender_id`
                         response_data = await ChatbotService.ask_question(
                             question=message_text,
-                            cuenta_id=cuenta_id,
+                            sender_id=sender_id,
                             db=db,
                         )
                         response_text = response_data.get("respuesta", "Lo siento, no entendí tu mensaje.")
@@ -824,7 +824,6 @@ class FacebookService:
                     except Exception as e:
                         logging.error(f"Error procesando el mensaje: {str(e)}")
         return {"status": "ok"}
-
 
 
 
