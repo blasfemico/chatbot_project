@@ -238,36 +238,44 @@ async function deleteCiudad(ciudadId) {
 
 async function fetchProductos() {
     const cuentaId = document.getElementById("cuentaId").value;
+
     if (!cuentaId) {
         alert("Por favor, ingresa el ID de la cuenta.");
         return;
     }
+
     try {
         const response = await fetch(`${backendUrl}accounts/${cuentaId}/products`);
+        if (!response.ok) {
+            throw new Error(`Error al cargar productos: ${response.statusText}`);
+        }
+
         const productos = await response.json();
-        if (!Array.isArray(productos)) {
-            console.error("La respuesta no es una lista de productos:", productos);
-            document.getElementById("productos-list").innerHTML = "<p>Error al cargar productos.</p>";
+
+        if (!Array.isArray(productos) || productos.length === 0) {
+            document.getElementById("productos-list").innerHTML = "<p>No hay productos registrados para esta cuenta.</p>";
             return;
         }
 
+        // Renderizar productos
         document.getElementById("productos-list").innerHTML = productos
-        .map((producto) => {
-            if (!producto.producto_id) { 
-                console.error("Producto sin ID encontrado:", producto);
-                return `<p>Error: Producto sin ID no se puede eliminar.</p>`;
-            }
-            return `
-                <p>${producto.producto} - Precio: ${producto.precio}
-                    <button onclick="deleteProducto(${producto.producto_id})">Eliminar</button>
-                </p>`;
-        })
-        .join("");
+            .map(producto => {
+                if (!producto.id) {
+                    console.error("Producto sin ID encontrado:", producto);
+                    return `<p>Error: Producto sin ID no se puede eliminar.</p>`;
+                }
+                return `
+                    <p>${producto.producto} - Precio: ${producto.precio}
+                        <button onclick="deleteProducto(${cuentaId}, ${producto.id})">Eliminar</button>
+                    </p>`;
+            })
+            .join("");
     } catch (error) {
         console.error("Error al cargar productos:", error);
-        document.getElementById("productos-list").innerHTML = "<p>Error al cargar productos.</p>";
+        document.getElementById("productos-list").innerHTML = "<p>Error al cargar productos. Revisa la consola para más detalles.</p>";
     }
 }
+
 
 
 async function createProductos(event) {
@@ -289,7 +297,7 @@ async function createProductos(event) {
     fetchProductos();
 }
 
-async function deleteProducto(productoId) {
+async function deleteProducto(cuentaId, productoId) {
     try {
         const response = await fetch(`${backendUrl}accounts/${cuentaId}/products/${productoId}`, {
             method: 'DELETE'
@@ -297,17 +305,16 @@ async function deleteProducto(productoId) {
 
         if (response.ok) {
             alert("Producto eliminado con éxito.");
-            fetchProductos(); // Refresca la lista de productos
+            fetchProductos(); // Refrescar la lista de productos
         } else {
             const errorData = await response.json();
-            throw new Error(`Error al eliminar producto: ${errorData.detail || response.status}`);
+            throw new Error(`Error al eliminar producto: ${errorData.detail || response.statusText}`);
         }
     } catch (error) {
         console.error("Error al eliminar producto:", error);
         alert("No se pudo eliminar el producto. Verifica la consola para más detalles.");
     }
 }
-
 
 
 async function fetchFaqs() {
