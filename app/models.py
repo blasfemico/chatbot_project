@@ -28,7 +28,8 @@ class Ciudad(Base):
     __tablename__ = "ciudades"
     id = Column(Integer, primary_key=True)
     nombre = Column(String, unique=True, nullable=False)
-
+    phone_prefix = Column(String, unique=True, nullable=True)  
+    
     productos = relationship("ProductoCiudad", back_populates="ciudad")
 
 
