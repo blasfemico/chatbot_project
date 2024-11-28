@@ -41,7 +41,7 @@ API_KEYS_FILE = "api_keys.json"
 processed_message_ids = set()
 
 class ChatbotService:
-    initial_message_sent = set() 
+    initial_message_sent = {} 
     user_contexts = {}  
     @staticmethod
     def extract_product_from_initial_message(initial_message: str) -> str:
@@ -311,6 +311,19 @@ class ChatbotService:
                 "intencion_detectada": None,
             }
 
+        if sender_id not in ChatbotService.initial_message_sent or not ChatbotService.initial_message_sent[sender_id]:
+            ChatbotService.initial_message_sent[sender_id] = True
+            primer_producto = ChatbotService.extract_product_from_initial_message(question)
+            response = ChatbotService.generate_humanlike_response(
+                question,
+                db_response="",
+                sender_id=sender_id,
+                ciudades_disponibles=[],
+                primer_producto=primer_producto,
+                initial_message=True,
+            )
+            return {"respuesta": response}
+        
         context = ChatbotService.user_contexts[sender_id][cuenta_id]
         logging.info(f"Contexto inicial para sender_id {sender_id}, cuenta_id {cuenta_id}: {context}")
 
@@ -426,7 +439,7 @@ class ChatbotService:
                 db_response = f"{faq_answer}\n\n{db_response}"
         try:
             respuesta = ChatbotService.generate_humanlike_response(
-                sanitized_question, db_response, list(productos_por_ciudad.keys())
+                sanitized_question, db_response, list(productos_por_ciudad.keys(), ciudades_disponibles)
             )
         except Exception as e:
             logging.error(f"Error al generar respuesta humanlike: {str(e)}")
