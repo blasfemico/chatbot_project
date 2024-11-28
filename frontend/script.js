@@ -31,6 +31,9 @@ async function loadSection(section) {
                     <input type="text" id="nombreProductoCiudad" placeholder="Nombre del Producto" required>
                     <button type="submit">Agregar Producto</button>
                 </form>
+                <h3>Eliminar Todos los Productos de una Ciudad</h3>
+                <input type="number" id="ciudadIdEliminar" placeholder="ID de la Ciudad" required>
+                <button onclick="deleteProductosCiudad(document.getElementById('ciudadIdEliminar').value)">Eliminar Todos los Productos</button>
                 <h3>Crear Nueva Ciudad</h3>
                 <form onsubmit="createCiudad(event)">
                     <input type="text" id="nombreCiudad" placeholder="Nombre de la Ciudad" required>
@@ -38,6 +41,7 @@ async function loadSection(section) {
                 </form>
             `;
             break;
+            
         case "productos":
             content.innerHTML = `
                 <h2>Gestionar Productos</h2>
@@ -539,26 +543,29 @@ async function deleteProductoCiudad(ciudadId, productId) {
     }
 }
 async function deleteProductosCiudad(ciudadId) {
+    if (!ciudadId) {
+        alert("Por favor, proporciona un ID de ciudad válido.");
+        return;
+    }
+
     try {
         const response = await fetch(`${backendUrl}cities/${ciudadId}/products/delete_all`, {
-            method: 'DELETE'
+            method: 'DELETE',
         });
 
         if (response.ok) {
             alert(`Todos los productos de la ciudad con ID "${ciudadId}" han sido eliminados con éxito.`);
+            // Refresca la lista de productos
             fetchProductosPorCiudad(); 
         } else {
             const errorData = await response.json();
-            throw new Error(`Error al eliminar productos: ${errorData.detail || response.status}`);
+            throw new Error(`Error al eliminar productos: ${errorData.detail || response.statusText}`);
         }
     } catch (error) {
         console.error("Error al eliminar todos los productos de la ciudad:", error);
         alert("No se pudieron eliminar los productos. Revisa la consola para más detalles.");
     }
 }
-
-
-
 async function deleteAllFaqs() {
     try {
         const response = await fetch(`${backendUrl}faq/delete_all/`, {
