@@ -45,20 +45,20 @@ class ChatbotService:
     
     @staticmethod
     def extract_product_from_initial_message(initial_message: str) -> str:
-        """
-        Extrae el nombre del producto del mensaje inicial enviado automáticamente por Facebook.
-        Si no se detecta un producto, devuelve un valor predeterminado.
-        """
-        product_match = re.search(r"información sobre las (pastillas|producto|cápsulas) (\w+)", initial_message, re.IGNORECASE)
+        product_match = re.search(
+            r"información sobre las (pastillas|producto|cápsulas) (\w+)", 
+            initial_message, 
+            re.IGNORECASE
+        )
         if product_match:
-            return product_match.group(2).capitalize() 
-        return "Acxion" 
+            return product_match.group(2).capitalize()
+        return "Acxion"
 
     @staticmethod
     def sanitize_text(text: str) -> str:
-        sanitized_text = re.sub(r"[^a-zA-Z0-9\s]", "", unidecode(text)) 
+        sanitized_text = re.sub(r"[^a-zA-Z0-9\s]", "", unidecode(text))
         return sanitized_text.lower()
-    
+
     @staticmethod
     def update_keywords_based_on_feedback(text: str):
         feedback_phrases = [
@@ -79,6 +79,7 @@ class ChatbotService:
         ciudades_disponibles: list,
         chat_history: str = "",
         primer_producto: str = "Acxion", 
+        initial_message: bool = False,  
     ) -> str:
         ciudades_str = ", ".join(ciudades_disponibles)
         ChatbotService.update_keywords_based_on_feedback(question)
@@ -88,14 +89,17 @@ class ChatbotService:
             "no necesito más", "ok", "gracias por info", "adios"
         ]
 
-        # Si detecta frases de cierre, responde cortésmente y finaliza.
         if any(phrase in question.lower() for phrase in feedback_phrases):
             return "Gracias por contactarnos. Si necesitas algo más, no dudes en escribirnos. ¡Que tengas un buen día!"
+
+        prompt = f"""
+    Eres una asistente de ventas que responde preguntas de clientes únicamente con información basada en los datos de productos y precios disponibles en la base de datos. 
+    No inventes detalles ni proporciones asesoramiento médico, y no sugieras consultar a un profesional de la salud. Limita tus respuestas solo a la información de productos en la base de datos.
+
+
+        **Condiciones especiales:**
+        - Si `{initial_message}` es falso (es el primer mensaje del cliente), responde con el siguiente texto:
         
-        # Detecta si es el primer mensaje basado en la lógica de productos estrella.
-        if primer_producto and primer_producto not in ChatbotService.initial_message_sent:
-            ChatbotService.initial_message_sent.add(primer_producto)
-            return f"""
             Hola, te comparto información de mi producto estrella:
 
             ¡BAJA DE PESO FÁCIL Y RÁPIDO CON {primer_producto}!
@@ -121,12 +125,6 @@ class ChatbotService:
             ¡Entrega a domicilio GRATIS y pagas al recibir!
 
             Solo necesito tu número de teléfono, tu dirección y la ciudad en la que vives para agendarte un pedido.
-            """
-
-
-        prompt = f"""
-    Eres una asistente de ventas que responde preguntas de clientes únicamente con información basada en los datos de productos y precios disponibles en la base de datos. 
-    No inventes detalles ni proporciones asesoramiento médico, y no sugieras consultar a un profesional de la salud. Limita tus respuestas solo a la información de productos en la base de datos.
 
     La base de datos de productos disponible es la siguiente:
 
