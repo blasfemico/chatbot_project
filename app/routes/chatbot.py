@@ -304,13 +304,12 @@ class ChatbotService:
         productos = ChatbotService.extract_product_and_quantity(sanitized_question, db)
         if productos:
             for producto in productos:
-
                 existing_product = next(
                     (p for p in context["productos"] if p["producto"] == producto["producto"]),
                     None
                 )
                 if existing_product:
-                    existing_product["cantidad"] += producto["cantidad"] 
+                    existing_product["cantidad"] += producto["cantidad"]
                 else:
                     context["productos"].append(producto)  
 
@@ -524,29 +523,28 @@ class ChatbotService:
         cantidad_matches = re.findall(r"(\d+)\s*cajas?\s*de\s*(\w+)", text, re.IGNORECASE)
         if cantidad_matches:
             for match in cantidad_matches:
-                cantidad, producto = int(match[0]), match[1]
+                cantidad, producto = match
+                cantidad = int(cantidad)  
                 if producto in nombres_productos:
                     productos_detectados.append({"producto": producto, "cantidad": cantidad})
-        text_embedding = ChatbotService.model.encode(text, convert_to_tensor=True)
-        productos_embeddings = ChatbotService.model.encode(nombres_productos, convert_to_tensor=True)
-        similarities = util.cos_sim(text_embedding, productos_embeddings)[0]
+        if not productos_detectados and nombres_productos:
+            text_embedding = ChatbotService.model.encode(text, convert_to_tensor=True)
+            productos_embeddings = ChatbotService.model.encode(nombres_productos, convert_to_tensor=True)
+            similarities = util.cos_sim(text_embedding, productos_embeddings)[0]
 
-        max_similarity_index = similarities.argmax().item()
-        max_similarity_value = similarities[max_similarity_index]
-        threshold = 0.5
-        if max_similarity_value >= threshold:
-            producto_detectado = nombres_productos[max_similarity_index]
-            cantidad_match = re.findall(r"\b(\d+)\b", text)
-            cantidad = int(cantidad_match[0]) if cantidad_match else 1  
-            productos_detectados.append({"producto": producto_detectado, "cantidad": cantidad})
+            max_similarity_index = similarities.argmax().item()
+            max_similarity_value = similarities[max_similarity_index]
+            threshold = 0.5
 
+            if max_similarity_value >= threshold:
+                producto_detectado = nombres_productos[max_similarity_index]
+                cantidad_match = re.findall(r"\b(\d+)\b", text)
+                cantidad = int(cantidad_match[0]) if cantidad_match else 1  # Asume 1 si no hay cantidad explícita
+                productos_detectados.append({"producto": producto_detectado, "cantidad": cantidad})
+
+        # Log de los productos detectados
         logging.info(f"Productos detectados: {productos_detectados}")
         return productos_detectados
-
-
-
-
-
 
 
     @staticmethod
