@@ -442,7 +442,6 @@ class ChatbotService:
         context = ChatbotService.user_contexts[sender_id][cuenta_id]
         productos = context["productos"]
 
-        # Verificar si el producto ya existe en el contexto
         existing_product = next(
             (p for p in productos if p["producto"] == producto), None
         )
@@ -513,8 +512,6 @@ class ChatbotService:
             f"En caso de que usted no pueda, reagendamos la entrega sin ningún problema.\n\n"
             f"Cualquier otra duda aquí estoy para servirle 🤗"
         )
-
-        # Limpiar el contexto después de completar la orden
         del ChatbotService.user_contexts[sender_id]
 
         return {"respuesta": response_text + "\n\n" + "\n".join(responses)}
@@ -534,18 +531,17 @@ class ChatbotService:
     def extract_product_and_quantity(text: str, db: Session) -> list:
         productos_detectados = []
         productos = db.query(Producto).all()
+        if not productos:  
+            logging.error("No hay productos disponibles en la base de datos.")
+            return productos_detectados  
         nombres_productos = [producto.nombre for producto in productos]
-
-        # **Primera lógica**: Buscar con el patrón "X cajas de producto"
         cantidad_matches = re.findall(r"(\d+)\s*cajas?\s*de\s*(\w+)", text, re.IGNORECASE)
         if cantidad_matches:
             for match in cantidad_matches:
                 cantidad, producto = int(match[0]), match[1]
                 if producto in nombres_productos:
                     productos_detectados.append({"producto": producto, "cantidad": cantidad})
-
-        # **Segunda lógica**: Usar embeddings para encontrar similitud con los nombres de productos
-        if not productos_detectados:  # Solo aplicar embeddings si no se detectó nada en la lógica previa
+        if not productos_detectados:
             text_embedding = ChatbotService.model.encode(text, convert_to_tensor=True)
             productos_embeddings = ChatbotService.model.encode(nombres_productos, convert_to_tensor=True)
             similarities = util.cos_sim(text_embedding, productos_embeddings)[0]
@@ -555,17 +551,12 @@ class ChatbotService:
 
             if max_similarity_value >= threshold:
                 producto_detectado = nombres_productos[max_similarity_index]
-                cantidad_match = re.findall(r"\b(\d+)\b", text)  # Buscar solo números
-                cantidad = int(cantidad_match[0]) if cantidad_match else 1  # Por defecto, 1 caja si no se especifica
+                cantidad_match = re.findall(r"\b(\d+)\b", text) 
+                cantidad = int(cantidad_match[0]) if cantidad_match else 1  
                 productos_detectados.append({"producto": producto_detectado, "cantidad": cantidad})
 
         logging.info(f"Productos detectados: {productos_detectados}")
         return productos_detectados
-
-
-
-
-
 
     @staticmethod
     def load_product_embeddings(db: Session):
