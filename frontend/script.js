@@ -199,16 +199,16 @@ async function fetchProductosPorCiudad() {
         }
 
         document.getElementById("productos-ciudad-list").innerHTML = productos.map(producto => `
-            <p>${producto.nombre}
-                <button onclick="deleteProductoDeCiudad(${ciudadId}, ${producto.id})">Eliminar</button>
+            <p>${producto.nombre} (ID: ${producto.id})
+                <button onclick="deleteProductDeCiudad(${ciudadId}, ${producto.id})">Eliminar</button>
             </p>
         `).join("");
-        
     } catch (error) {
         console.error("Error al cargar productos por ciudad:", error);
         document.getElementById("productos-ciudad-list").innerHTML = "<p>Error al cargar productos por ciudad.</p>";
     }
 }
+
 
 async function addProductoToCiudad(event) {
     event.preventDefault();
@@ -532,7 +532,7 @@ async function deleteProductDeCiudad(ciudadId, productId) {
     }
 
     try {
-        const response = await fetch(`${backendUrl}cities/${ciudadId}/products/${productId}`, {
+        const response = await fetch(`${backendUrl}cities/${ciudadId}/products/${productId}/`, {
             method: 'DELETE',
             headers: {
                 'Content-Type': 'application/json',
@@ -541,7 +541,7 @@ async function deleteProductDeCiudad(ciudadId, productId) {
 
         if (response.ok) {
             alert(`El producto con ID "${productId}" fue eliminado de la ciudad con éxito.`);
-            fetchProductosPorCiudad();
+            fetchProductosPorCiudad(); 
         } else {
             const errorData = await response.json();
             throw new Error(`Error al eliminar producto: ${errorData.detail || response.statusText}`);
@@ -551,6 +551,7 @@ async function deleteProductDeCiudad(ciudadId, productId) {
         alert("No se pudo eliminar el producto. Revisa la consola para más detalles.");
     }
 }
+
 
 async function deleteProductosCiudad(ciudadId) {
     if (!ciudadId) {

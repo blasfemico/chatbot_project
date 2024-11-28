@@ -42,7 +42,7 @@ async def get_all_cities(db: Session = Depends(get_db)):
 def delete_city(city_id: int, db: Session = Depends(get_db)):
     return crud.CRUDCiudad().delete_ciudad(db=db, ciudad_id=city_id)
 
-@router.delete("/cities/{city_id}/products/{product_id}", response_model=dict)
+@router.delete("/cities/{city_id}/products/{product_id}/", response_model=dict)
 def delete_product_from_city(
     city_id: int, product_id: int, db: Session = Depends(get_db)
 ):

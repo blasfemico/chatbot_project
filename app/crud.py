@@ -368,10 +368,9 @@ class CRUDCiudad:
         if not ciudad:
             raise HTTPException(status_code=404, detail="Ciudad no encontrada")
 
+        productos_asociados = []
         for nombre_producto in productos_nombres:
-            producto = (
-                db.query(Producto).filter(Producto.nombre == nombre_producto).first()
-            )
+            producto = db.query(Producto).filter(Producto.nombre == nombre_producto).first()
             if not producto:
                 producto = Producto(nombre=nombre_producto)
                 db.add(producto)
@@ -382,17 +381,23 @@ class CRUDCiudad:
                 ciudad_id=ciudad.id, producto_id=producto.id
             )
             db.add(producto_ciudad)
+            productos_asociados.append({
+                "id": producto.id,
+                "nombre": producto.nombre
+            })
         db.commit()
-        return {"message": "Productos asociados a la ciudad"}
+        return {"message": "Productos asociados a la ciudad", "productos": productos_asociados}
+
 
     def get_products_for_city(self, db: Session, ciudad_id: int):
         productos = (
-            db.query(Producto.nombre)
+            db.query(Producto.id, Producto.nombre)
             .join(ProductoCiudad, Producto.id == ProductoCiudad.producto_id)
             .filter(ProductoCiudad.ciudad_id == ciudad_id)
             .all()
         )
-        return [{"nombre": p[0]} for p in productos]
+        return [{"id": p.id, "nombre": p.nombre} for p in productos]
+
     
     def delete_product_from_city(self, db: Session, ciudad_id: int, producto_id: int):
         """
