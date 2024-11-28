@@ -308,15 +308,20 @@ class ChatbotService:
         logging.info(f"Contexto inicial para sender_id {sender_id}, cuenta_id {cuenta_id}: {context}")
 
         productos = ChatbotService.extract_product_and_quantity(sanitized_question, db)
-        for producto in productos:
-            ChatbotService.update_context(sender_id, producto["producto"], producto["cantidad"])
-
+        if productos:
+            for producto in productos:
+                ChatbotService.update_context(sender_id, cuenta_id, producto["producto"], producto["cantidad"])
+        else:
+            logging.info("No se detectaron productos, pero el flujo continuará normalmente.")
         if hacer_order:
             if not context.get("telefono"):  
                 return {"respuesta": "Por favor, proporcione su número de teléfono para completar la orden."}
             if not context.get("nombre") or not context.get("apellido"):  
                 return {"respuesta": "Por favor, proporcione su nombre y apellido para completar la orden."}
             return await ChatbotService.create_order_from_context(sender_id, cuenta_id, db)
+
+        logging.info(f"Contexto actualizado para sender_id {sender_id}: {context}")
+
 
         if not ChatbotService.product_embeddings:
             logging.info("Cargando embeddings de productos por primera vez...")
@@ -533,7 +538,7 @@ class ChatbotService:
         productos = db.query(Producto).all()
         if not productos:
             logging.warning("No hay productos disponibles en la base de datos. Continuando sin detección de productos.")
-            return productos_detectados
+            return productos_detectados  # Continuar con una lista vacía
 
         nombres_productos = [producto.nombre for producto in productos]
 
@@ -560,7 +565,7 @@ class ChatbotService:
             if max_similarity_value >= threshold:
                 producto_detectado = nombres_productos[max_similarity_index]
                 cantidad_match = re.findall(r"\b(\d+)\b", text)
-                cantidad = int(cantidad_match[0]) if cantidad_match else 1
+                cantidad = int(cantidad_match[0]) if cantidad_match else 1  # Cantidad predeterminada es 1
                 productos_detectados.append({"producto": producto_detectado, "cantidad": cantidad})
 
         if not productos_detectados:
@@ -568,6 +573,7 @@ class ChatbotService:
 
         logging.info(f"Productos detectados: {productos_detectados}")
         return productos_detectados
+
 
 
     @staticmethod
