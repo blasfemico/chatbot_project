@@ -42,7 +42,7 @@ processed_message_ids = set()
 
 class ChatbotService:
     initial_message_sent = set() 
-    
+    user_contexts = {}  
     @staticmethod
     def extract_product_from_initial_message(initial_message: str) -> str:
         product_match = re.search(
@@ -278,7 +278,7 @@ class ChatbotService:
     model = SentenceTransformer("all-MiniLM-L6-v2")
 
     @staticmethod
-    async def ask_question(question: str, cuenta_id: int, sender_id: int, db: Session, hacer_order=False) -> dict:
+    async def ask_question(question: str, sender_id: str, db: Session, hacer_order=False) -> dict:
         sanitized_question = ChatbotService.sanitize_text(question)
         logging.info(f"Pregunta original: {question}")
         logging.info(f"Pregunta sanitizada: {sanitized_question}")
@@ -290,10 +290,9 @@ class ChatbotService:
         ]
         if any(phrase in sanitized_question for phrase in feedback_phrases):
             return {"respuesta": "Gracias por contactarnos. Si necesitas algo más, no dudes en escribirnos. ¡Que tengas un buen día!"}
-
         if sender_id not in ChatbotService.user_contexts:
             ChatbotService.user_contexts[sender_id] = {
-                "productos": [],  
+                "productos": [],
                 "telefono": None,
                 "nombre": None,
                 "apellido": None,
@@ -301,26 +300,19 @@ class ChatbotService:
                 "intencion_detectada": None,
             }
 
-        productos = ChatbotService.extract_product_and_quantity(sanitized_question, db)
-        if productos:
-            for producto in productos:
-                existing_product = next(
-                    (p for p in context["productos"] if p["producto"] == producto["producto"]),
-                    None
-                )
-                if existing_product:
-                    existing_product["cantidad"] += producto["cantidad"]
-                else:
-                    context["productos"].append(producto)  
-
         context = ChatbotService.user_contexts[sender_id]
-        logging.info(f"Contexto inicial para cuenta_id {sender_id}: {context}")
+        logging.info(f"Contexto inicial para sender_id {sender_id}: {context}")
+        productos = ChatbotService.extract_product_and_quantity(sanitized_question, db)
+        for producto in productos:
+            ChatbotService.update_context(sender_id, producto["producto"], producto["cantidad"])
+
         if hacer_order:
             if not context.get("telefono"):  
                 return {"respuesta": "Por favor, proporcione su número de teléfono para completar la orden."}
             if not context.get("nombre") or not context.get("apellido"):  
                 return {"respuesta": "Por favor, proporcione su nombre y apellido para completar la orden."}
             return await ChatbotService.create_order_from_context(sender_id, db)
+
         if not ChatbotService.product_embeddings:
             logging.info("Cargando embeddings de productos por primera vez...")
             ChatbotService.load_product_embeddings(db)
@@ -329,23 +321,20 @@ class ChatbotService:
         phone_number = ChatbotService.extract_phone_number(sanitized_question)
 
         if producto:
-            context["producto"] = producto
-        if cantidad is not None:
-            context["cantidad"] = cantidad
+            context["productos"].append({"producto": producto, "cantidad": cantidad})
         if phone_number:
             context["telefono"] = phone_number
 
-        logging.info(f"Contexto actualizado para cuenta_id {cuenta_id}: {context}")
+        logging.info(f"Contexto actualizado para sender_id {sender_id}: {context}")
         if (
-            context.get("producto") 
-            and context.get("cantidad")
+            context.get("productos") 
             and context.get("telefono")
             and context.get("nombre")
             and context.get("apellido")
         ):
             logging.info("Datos completos para crear la orden.")
             context["intencion_detectada"] = "crear_orden"
-            return await ChatbotService.ask_question(question, cuenta_id, db, hacer_order=True)
+            return await ChatbotService.ask_question(question, sender_id, db, hacer_order=True)
         ciudades_disponibles = CRUDCiudad.get_all_cities(db)
         ciudades_nombres = [ciudad.nombre.lower() for ciudad in ciudades_disponibles]  
 
@@ -393,7 +382,7 @@ class ChatbotService:
             intent_data = {"intent": "otro"}
         if intent_data.get("intent") == "listar_productos":
             context["intencion_detectada"] = "listar_productos"
-            productos = crud_producto.get_productos_by_cuenta(db, cuenta_id)
+            productos = crud_producto.get_productos_by_cuenta(db, sender_id)
             db_response = "\n".join([f"{prod['producto']}: Precio {prod['precio']} pesos" for prod in productos])
             context["intencion_detectada"] = None
             return {"respuesta": db_response}
@@ -415,7 +404,7 @@ class ChatbotService:
 
         else:
             faq_answer = await ChatbotService.search_faq_in_db(sanitized_question, db)
-            productos = crud_producto.get_productos_by_cuenta(db, cuenta_id)
+            productos = crud_producto.get_productos_by_cuenta(db, sender_id)
             db_response = "\n".join(
                 [f"{prod['producto']}: Precio {prod['precio']} pesos" for prod in productos]
             )
@@ -436,74 +425,92 @@ class ChatbotService:
 
 
 
-    @staticmethod
-    def update_context(cuenta_id: int, producto: str, cantidad: int):
-        context = ChatbotService.user_contexts.get(cuenta_id, {})
-        if producto:
-            context["producto"] = producto
-        if cantidad is not None:
-            context["cantidad"] = cantidad
-        ChatbotService.user_contexts[cuenta_id] = context
-        logging.info(f"Contexto actualizado para cuenta_id {cuenta_id}: {ChatbotService.user_contexts[cuenta_id]}")
-
-
 
     @staticmethod
-    async def create_order_from_context(cuenta_id: int, db: Session) -> dict:
+    def update_context(sender_id: str, producto: str, cantidad: int):
+        # Crear contexto si no existe para este sender_id
+        if sender_id not in ChatbotService.user_contexts:
+            ChatbotService.user_contexts[sender_id] = {"productos": []}
+
+        context = ChatbotService.user_contexts[sender_id]
+        productos = context["productos"]
+
+        # Verificar si el producto ya existe en el contexto
+        existing_product = next(
+            (p for p in productos if p["producto"] == producto), None
+        )
+
+        if existing_product:
+            existing_product["cantidad"] += cantidad  # Actualizar cantidad
+        else:
+            productos.append({"producto": producto, "cantidad": cantidad})  # Agregar nuevo producto
+
+        logging.info(f"Contexto actualizado para sender_id {sender_id}: {context}")
+
+
+
+    @staticmethod
+    async def create_order_from_context(sender_id: int, db: Session) -> dict:
         """
         Crea la orden utilizando el contexto actual y detecta la ciudad automáticamente
         si no se encuentra explícita en el contexto.
         """
-        context = ChatbotService.user_contexts[cuenta_id]
+        context = ChatbotService.user_contexts.get(sender_id)
+        if not context or not context.get("productos"):
+            return {"respuesta": "No hay productos en tu orden. Por favor, agrega productos antes de confirmar."}
+
         logging.info(f"Creando orden con el contexto: {context}")
         telefono = context.get("telefono")
         if telefono and not context.get("ciudad"):
-            location_code = telefono[:3]
+            location_code = telefono[:3]  
             ciudad = CRUDCiudad.get_city_by_phone_prefix(db, location_code)
             if ciudad:
                 context["ciudad"] = ciudad
             else:
-                context["ciudad"] = "N/A"
+                context["ciudad"] = "N/A"  
 
         nombre = context.get("nombre", "Cliente")
         apellido = context.get("apellido", "Apellido")
 
-        responses = []  
+        productos = context["productos"]
+        responses = []
 
-        try:
-            for producto in context.get("productos", []): 
-                order_data = OrderCreate(
-                    phone=telefono,
-                    email=None,
-                    address=None,
-                    producto=producto["producto"], 
-                    cantidad_cajas=producto["cantidad"],  
-                    ciudad=context["ciudad"],
-                    ad_id=context.get("ad_id", "N/A"),
-                )
-                try:
-                    result = await OrderService.create_order(order_data, db, nombre, apellido)
-                    responses.append(result["message"])
-                except Exception as e:
-                    responses.append(f"Error al procesar el pedido de {producto['producto']}: {str(e)}.")
-
-       
-            response_text = (
-                f"✅ Su pedido ya quedó programado!\n\n"
-                f"El repartidor sale de 8 AM a 9 PM él le marca y le manda un Whatsapp para confirmar la entrega 🛵\n\n"
-                f"📞Recuerde estar al pendiente del teléfono, porque si usted no contesta, el repartidor no se presenta. "
-                f"En caso de que usted no pueda, reagendamos la entrega sin ningún problema.\n\n"
-                f"Cualquier otra duda aquí estoy para servirle 🤗"
+        for producto in productos:
+            order_data = OrderCreate(
+                phone=telefono,
+                email=None,
+                address=None,
+                producto=producto["producto"],
+                cantidad_cajas=producto["cantidad"],
+                ciudad=context["ciudad"],
+                ad_id=context.get("ad_id", "N/A"),
             )
-            
-            del ChatbotService.user_contexts[cuenta_id]
-            return {"respuesta": response_text + "\n\n" + "\n".join(responses)} 
-        except HTTPException as e:
-            logging.error(f"Error HTTP al crear la orden: {str(e)}")
-            return {"respuesta": "Hubo un problema al crear tu orden. Inténtalo de nuevo más tarde."}
-        except Exception as e:
-            logging.error(f"Error inesperado al crear la orden: {str(e)}")
-            return {"respuesta": "Hubo un error técnico al crear tu orden. Por favor, inténtalo más tarde."}
+
+            try:
+                logging.info(f"Llamando a create_order con: order_data={order_data}, nombre={nombre}, apellido={apellido}")
+                result = await OrderService.create_order(order_data, db, nombre, apellido)
+                logging.info(f"Resultado de creación de la orden: {result}")
+                responses.append(f"✅ Pedido de {producto['cantidad']} cajas de {producto['producto']} registrado con éxito.")
+            except HTTPException as e:
+                logging.error(f"Error HTTP al crear la orden para {producto['producto']}: {str(e)}")
+                responses.append(f"❌ Error al registrar el pedido de {producto['producto']}: {str(e)}.")
+            except Exception as e:
+                logging.error(f"Error inesperado al crear la orden para {producto['producto']}: {str(e)}")
+                responses.append(f"❌ Error técnico al registrar el pedido de {producto['producto']}: {str(e)}.")
+
+        response_text = (
+            f"✅ Su pedido ya quedó programado!\n\n"
+            f"El repartidor sale de 8 AM a 9 PM él le marca y le manda un Whatsapp para confirmar la entrega 🛵\n\n"
+            f"📞Recuerde estar al pendiente del teléfono, porque si usted no contesta, el repartidor no se presenta. "
+            f"En caso de que usted no pueda, reagendamos la entrega sin ningún problema.\n\n"
+            f"Cualquier otra duda aquí estoy para servirle 🤗"
+        )
+
+        # Limpiar el contexto después de completar la orden
+        del ChatbotService.user_contexts[sender_id]
+
+        return {"respuesta": response_text + "\n\n" + "\n".join(responses)}
+
 
     
     @staticmethod
@@ -520,31 +527,36 @@ class ChatbotService:
         productos_detectados = []
         productos = db.query(Producto).all()
         nombres_productos = [producto.nombre for producto in productos]
+
+        # **Primera lógica**: Buscar con el patrón "X cajas de producto"
         cantidad_matches = re.findall(r"(\d+)\s*cajas?\s*de\s*(\w+)", text, re.IGNORECASE)
         if cantidad_matches:
             for match in cantidad_matches:
-                cantidad, producto = match
-                cantidad = int(cantidad)  
+                cantidad, producto = int(match[0]), match[1]
                 if producto in nombres_productos:
                     productos_detectados.append({"producto": producto, "cantidad": cantidad})
-        if not productos_detectados and nombres_productos:
+
+        # **Segunda lógica**: Usar embeddings para encontrar similitud con los nombres de productos
+        if not productos_detectados:  # Solo aplicar embeddings si no se detectó nada en la lógica previa
             text_embedding = ChatbotService.model.encode(text, convert_to_tensor=True)
             productos_embeddings = ChatbotService.model.encode(nombres_productos, convert_to_tensor=True)
             similarities = util.cos_sim(text_embedding, productos_embeddings)[0]
-
             max_similarity_index = similarities.argmax().item()
             max_similarity_value = similarities[max_similarity_index]
             threshold = 0.5
 
             if max_similarity_value >= threshold:
                 producto_detectado = nombres_productos[max_similarity_index]
-                cantidad_match = re.findall(r"\b(\d+)\b", text)
-                cantidad = int(cantidad_match[0]) if cantidad_match else 1  # Asume 1 si no hay cantidad explícita
+                cantidad_match = re.findall(r"\b(\d+)\b", text)  # Buscar solo números
+                cantidad = int(cantidad_match[0]) if cantidad_match else 1  # Por defecto, 1 caja si no se especifica
                 productos_detectados.append({"producto": producto_detectado, "cantidad": cantidad})
 
-        # Log de los productos detectados
         logging.info(f"Productos detectados: {productos_detectados}")
         return productos_detectados
+
+
+
+
 
 
     @staticmethod
@@ -774,13 +786,14 @@ class FacebookService:
                 logging.warning(f"No se encontró ninguna cuenta para page_id {page_id}")
                 continue
 
+            cuenta_id = cuenta.id
             for event in entry.get("messaging", []):
                 message_id = event.get("message", {}).get("mid")
                 if message_id in processed_message_ids:
                     logging.info(f"Mensaje duplicado detectado: {message_id}. Ignorando.")
-                    continue
+                    continue 
 
-                processed_message_ids.add(message_id)
+                processed_message_ids.add(message_id) 
 
                 if "message" in event and not event.get("message", {}).get("is_echo"):
                     sender_id = event["sender"]["id"]
@@ -790,23 +803,18 @@ class FacebookService:
                     if not api_key:
                         logging.error(f"No se encontró una API Key para la página con ID {page_id}")
                         continue
-                    if not ChatbotService.user_contexts.get(sender_id):
+                    if not ChatbotService.user_contexts.get(cuenta_id, {}).get("nombre"):
                         user_profile = FacebookService.get_user_profile(sender_id, api_key)
                         if user_profile:
-                            ChatbotService.user_contexts[sender_id] = {
+                            ChatbotService.user_contexts.setdefault(cuenta_id, {}).update({
                                 "nombre": user_profile.get("first_name"),
                                 "apellido": user_profile.get("last_name"),
-                                "productos": [],  
-                                "telefono": None,
-                                "ad_id": None,
-                                "intencion_detectada": None,
-                            }
+                            })
 
                     try:
                         response_data = await ChatbotService.ask_question(
                             question=message_text,
-                            sender_id=sender_id,  
-                            cuenta_id=cuenta.id,
+                            cuenta_id=cuenta_id,
                             db=db,
                         )
                         response_text = response_data.get("respuesta", "Lo siento, no entendí tu mensaje.")
@@ -816,7 +824,6 @@ class FacebookService:
                     except Exception as e:
                         logging.error(f"Error procesando el mensaje: {str(e)}")
         return {"status": "ok"}
-
 
 
 
