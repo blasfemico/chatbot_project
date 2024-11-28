@@ -301,8 +301,7 @@ class ChatbotService:
                 "intencion_detectada": None,
             }
 
-        productos = ChatbotService.extract_products_and_quantities(sanitized_question, db) 
-
+        productos = ChatbotService.extract_product_and_quantity(sanitized_question, db)
         if productos:
             for producto in productos:
 
