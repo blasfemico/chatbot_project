@@ -309,8 +309,10 @@ class ChatbotService:
 
         productos = ChatbotService.extract_product_and_quantity(sanitized_question, db)
         if productos:
-            for producto in productos:
-                ChatbotService.update_context(sender_id, cuenta_id, producto["producto"], producto["cantidad"])
+            for producto_info in productos:
+                producto = producto_info.get("producto")
+                cantidad = producto_info.get("cantidad", 1)  
+                ChatbotService.update_context(sender_id, cuenta_id, producto, cantidad)
         else:
             logging.info("No se detectaron productos, pero el flujo continuará normalmente.")
         if hacer_order:
@@ -326,12 +328,7 @@ class ChatbotService:
         if not ChatbotService.product_embeddings:
             logging.info("Cargando embeddings de productos por primera vez...")
             ChatbotService.load_product_embeddings(db)
-
-        producto, cantidad = ChatbotService.extract_product_and_quantity(sanitized_question, db)  
         phone_number = ChatbotService.extract_phone_number(sanitized_question)
-
-        if producto:
-            context["productos"].append({"producto": producto, "cantidad": cantidad})
         if phone_number:
             context["telefono"] = phone_number
 
@@ -538,7 +535,7 @@ class ChatbotService:
         productos = db.query(Producto).all()
         if not productos:
             logging.warning("No hay productos disponibles en la base de datos. Continuando sin detección de productos.")
-            return productos_detectados  # Continuar con una lista vacía
+            return productos_detectados 
 
         nombres_productos = [producto.nombre for producto in productos]
 
