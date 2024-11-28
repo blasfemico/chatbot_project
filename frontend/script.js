@@ -524,7 +524,7 @@ async function deleteApiKey(name) {
     fetchApiKeys();
 }
 
-async function deleteProductoCiudad(ciudadId, productId) {
+async function deleteProductDeCiudad(ciudadId, productId) {
     if (!ciudadId || !productId) {
         alert("Por favor, proporciona un ID de ciudad y un ID de producto válidos.");
         return;
@@ -540,7 +540,6 @@ async function deleteProductoCiudad(ciudadId, productId) {
 
         if (response.ok) {
             alert(`El producto con ID "${productId}" fue eliminado de la ciudad con éxito.`);
-            // Opcional: Refresca la lista de productos después de eliminar
             fetchProductosPorCiudad();
         } else {
             const errorData = await response.json();
