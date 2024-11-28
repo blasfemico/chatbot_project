@@ -522,10 +522,11 @@ class ChatbotService:
         productos = db.query(Producto).all()
         nombres_productos = [producto.nombre for producto in productos]
         cantidad_matches = re.findall(r"(\d+)\s*cajas?\s*de\s*(\w+)", text, re.IGNORECASE)
-        for match in cantidad_matches:
-            cantidad, producto = int(match[0]), match[1]
-            if producto in nombres_productos:
-                productos_detectados.append({"producto": producto, "cantidad": cantidad})
+        if cantidad_matches:
+            for match in cantidad_matches:
+                cantidad, producto = int(match[0]), match[1]
+                if producto in nombres_productos:
+                    productos_detectados.append({"producto": producto, "cantidad": cantidad})
         text_embedding = ChatbotService.model.encode(text, convert_to_tensor=True)
         productos_embeddings = ChatbotService.model.encode(nombres_productos, convert_to_tensor=True)
         similarities = util.cos_sim(text_embedding, productos_embeddings)[0]
@@ -541,6 +542,7 @@ class ChatbotService:
 
         logging.info(f"Productos detectados: {productos_detectados}")
         return productos_detectados
+
 
 
 
