@@ -5,7 +5,6 @@ from app.models import (
     Cuenta,
     FAQ,
     CuentaProducto,
-    Ciudad,
     Producto,
     ProductoCiudad,
 )
@@ -89,21 +88,24 @@ class ChatbotService:
             "no necesito más", "ok", "gracias por info", "adios"
         ]
 
+        # Si detecta frases de cierre, responde cortésmente y finaliza.
         if any(phrase in question.lower() for phrase in feedback_phrases):
             return "Gracias por contactarnos. Si necesitas algo más, no dudes en escribirnos. ¡Que tengas un buen día!"
+        
+        # Detecta si es el primer mensaje basado en la lógica de productos estrella.
         if primer_producto and primer_producto not in ChatbotService.initial_message_sent:
             ChatbotService.initial_message_sent.add(primer_producto)
             return f"""
             Hola, te comparto información de mi producto estrella:
 
-            ¡BAJA DE PESO FÁCIL Y RÁPIDO CON {primer_producto}! 
+            ¡BAJA DE PESO FÁCIL Y RÁPIDO CON {primer_producto}!
             (resultados desde la primera o segunda semana)
 
             BENEFICIOS:
              • Baja alrededor de 6-10 kilos por mes ASEGURADO.
              • Acelera tu metabolismo y mejora la digestión.
              • Quema grasa y reduce tallas rápidamente.
-             • Sin rebote / Sin efectos secundarios
+             • Sin rebote / Sin efectos secundarios.
 
             Instrucciones: Tomar una pastilla al día durante el desayuno.
             Contenido: 30 tabletas por caja.
@@ -118,7 +120,7 @@ class ChatbotService:
 
             ¡Entrega a domicilio GRATIS y pagas al recibir!
 
-            Solo necesito tu número de teléfono, tu dirección y la ciudad en la que vives para agendarte un pedido!
+            Solo necesito tu número de teléfono, tu dirección y la ciudad en la que vives para agendarte un pedido.
             """
 
 
