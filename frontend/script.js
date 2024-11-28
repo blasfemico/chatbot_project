@@ -525,23 +525,33 @@ async function deleteApiKey(name) {
 }
 
 async function deleteProductoCiudad(ciudadId, productId) {
+    if (!ciudadId || !productId) {
+        alert("Por favor, proporciona un ID de ciudad y un ID de producto válidos.");
+        return;
+    }
+
     try {
         const response = await fetch(`${backendUrl}cities/${ciudadId}/products/${productId}`, {
             method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+            },
         });
 
         if (response.ok) {
             alert(`El producto con ID "${productId}" fue eliminado de la ciudad con éxito.`);
+            // Opcional: Refresca la lista de productos después de eliminar
             fetchProductosPorCiudad();
         } else {
             const errorData = await response.json();
-            throw new Error(`Error al eliminar producto: ${JSON.stringify(errorData)}`);
+            throw new Error(`Error al eliminar producto: ${errorData.detail || response.statusText}`);
         }
     } catch (error) {
-        console.error("Error al eliminar producto de la ciudad:", error);
+        console.error("Error al eliminar el producto de la ciudad:", error);
         alert("No se pudo eliminar el producto. Revisa la consola para más detalles.");
     }
 }
+
 async function deleteProductosCiudad(ciudadId) {
     if (!ciudadId) {
         alert("Por favor, proporciona un ID de ciudad válido.");
