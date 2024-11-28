@@ -518,14 +518,7 @@ class ChatbotService:
             producto_detectado = nombres_productos[max_similarity_index]
 
         if cantidad_match:
-            for cantidad_potencial in cantidad_match:
-                if producto_detectado:
-                    stock_producto = next(
-                        (prod.stock for prod in productos if prod.nombre == producto_detectado), None
-                    )
-                    if stock_producto and int(cantidad_potencial) <= stock_producto:
-                        cantidad = int(cantidad_potencial)
-                        break
+            cantidad = int(cantidad_match[0])  
 
         logging.info(f"Producto detectado: {producto_detectado}, Cantidad detectada: {cantidad}")
         return producto_detectado, cantidad
