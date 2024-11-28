@@ -531,9 +531,9 @@ class ChatbotService:
     def extract_product_and_quantity(text: str, db: Session) -> list:
         productos_detectados = []
         productos = db.query(Producto).all()
-        if not productos:  
-            logging.error("No hay productos disponibles en la base de datos.")
-            return productos_detectados  
+        if not productos: 
+            logging.warning("No hay productos disponibles en la base de datos. Continuando sin detección de productos.")
+            return productos_detectados 
         nombres_productos = [producto.nombre for producto in productos]
         cantidad_matches = re.findall(r"(\d+)\s*cajas?\s*de\s*(\w+)", text, re.IGNORECASE)
         if cantidad_matches:
@@ -541,7 +541,7 @@ class ChatbotService:
                 cantidad, producto = int(match[0]), match[1]
                 if producto in nombres_productos:
                     productos_detectados.append({"producto": producto, "cantidad": cantidad})
-        if not productos_detectados:
+        if not productos_detectados: 
             text_embedding = ChatbotService.model.encode(text, convert_to_tensor=True)
             productos_embeddings = ChatbotService.model.encode(nombres_productos, convert_to_tensor=True)
             similarities = util.cos_sim(text_embedding, productos_embeddings)[0]
@@ -551,9 +551,12 @@ class ChatbotService:
 
             if max_similarity_value >= threshold:
                 producto_detectado = nombres_productos[max_similarity_index]
-                cantidad_match = re.findall(r"\b(\d+)\b", text) 
+                cantidad_match = re.findall(r"\b(\d+)\b", text)  
                 cantidad = int(cantidad_match[0]) if cantidad_match else 1  
                 productos_detectados.append({"producto": producto_detectado, "cantidad": cantidad})
+
+        if not productos_detectados:
+            logging.info("No se detectaron productos en el mensaje del usuario. Continuando con flujo estándar.")
 
         logging.info(f"Productos detectados: {productos_detectados}")
         return productos_detectados
