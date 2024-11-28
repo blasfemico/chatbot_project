@@ -531,28 +531,36 @@ class ChatbotService:
     def extract_product_and_quantity(text: str, db: Session) -> list:
         productos_detectados = []
         productos = db.query(Producto).all()
-        if not productos: 
+        if not productos:
             logging.warning("No hay productos disponibles en la base de datos. Continuando sin detección de productos.")
-            return productos_detectados 
+            return productos_detectados
+
         nombres_productos = [producto.nombre for producto in productos]
+
+        # **Primera lógica**: Buscar con el patrón "X cajas de producto"
         cantidad_matches = re.findall(r"(\d+)\s*cajas?\s*de\s*(\w+)", text, re.IGNORECASE)
         if cantidad_matches:
             for match in cantidad_matches:
-                cantidad, producto = int(match[0]), match[1]
-                if producto in nombres_productos:
-                    productos_detectados.append({"producto": producto, "cantidad": cantidad})
-        if not productos_detectados: 
+                # Validar que la coincidencia tenga suficientes elementos
+                if len(match) >= 2:
+                    cantidad, producto = int(match[0]), match[1]
+                    if producto in nombres_productos:
+                        productos_detectados.append({"producto": producto, "cantidad": cantidad})
+
+        # **Segunda lógica**: Usar embeddings para encontrar similitud con los nombres de productos
+        if not productos_detectados:
             text_embedding = ChatbotService.model.encode(text, convert_to_tensor=True)
             productos_embeddings = ChatbotService.model.encode(nombres_productos, convert_to_tensor=True)
             similarities = util.cos_sim(text_embedding, productos_embeddings)[0]
+
             max_similarity_index = similarities.argmax().item()
             max_similarity_value = similarities[max_similarity_index]
             threshold = 0.5
 
             if max_similarity_value >= threshold:
                 producto_detectado = nombres_productos[max_similarity_index]
-                cantidad_match = re.findall(r"\b(\d+)\b", text)  
-                cantidad = int(cantidad_match[0]) if cantidad_match else 1  
+                cantidad_match = re.findall(r"\b(\d+)\b", text)
+                cantidad = int(cantidad_match[0]) if cantidad_match else 1
                 productos_detectados.append({"producto": producto_detectado, "cantidad": cantidad})
 
         if not productos_detectados:
@@ -560,6 +568,7 @@ class ChatbotService:
 
         logging.info(f"Productos detectados: {productos_detectados}")
         return productos_detectados
+
 
     @staticmethod
     def load_product_embeddings(db: Session):
