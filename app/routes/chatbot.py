@@ -791,25 +791,23 @@ class FacebookService:
                     if not api_key:
                         logging.error(f"No se encontró una API Key para la página con ID {page_id}")
                         continue
-                    
-                    # Cambiar el contexto para usar sender_id
                     if not ChatbotService.user_contexts.get(sender_id):
                         user_profile = FacebookService.get_user_profile(sender_id, api_key)
                         if user_profile:
                             ChatbotService.user_contexts[sender_id] = {
                                 "nombre": user_profile.get("first_name"),
                                 "apellido": user_profile.get("last_name"),
-                                "productos": [],  # Inicializa lista de productos
+                                "productos": [],  
                                 "telefono": None,
                                 "ad_id": None,
                                 "intencion_detectada": None,
                             }
 
                     try:
-                        # Llamar a ask_question con sender_id
                         response_data = await ChatbotService.ask_question(
                             question=message_text,
-                            sender_id=sender_id,  # Se usa sender_id aquí
+                            sender_id=sender_id,  
+                            cuenta_id=cuenta.id,
                             db=db,
                         )
                         response_text = response_data.get("respuesta", "Lo siento, no entendí tu mensaje.")
