@@ -318,7 +318,7 @@ class ChatbotService:
                 question,
                 db_response="",
                 sender_id=sender_id,
-                ciudades_disponibles=[],
+                ciudades_disponibles=list(productos_por_ciudad.keys()) + ciudades_disponibles,
                 primer_producto=primer_producto,
                 initial_message=True,
             )
