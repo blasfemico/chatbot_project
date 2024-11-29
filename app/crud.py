@@ -195,30 +195,32 @@ class CRUDOrder:
         try:
             if not order.phone:
                 raise HTTPException(status_code=400, detail="El campo 'phone' es obligatorio.")
-            if not order.producto:
-                raise HTTPException(status_code=400, detail="El campo 'producto' es obligatorio.")
+            if not order.producto or len(order.producto) == 0:
+                raise HTTPException(status_code=400, detail="Debe incluir al menos un producto.")
+            producto_json = json.dumps(order.producto)
 
-            producto_json = json.dumps(order.producto) 
             ciudad = CRUDCiudad.get_city_by_phone_prefix(db, order.phone[:3]) or "N/A"
-
             new_order = Order(
                 phone=order.phone,
                 email=order.email or "N/A",
                 address=order.address or "N/A",
-                producto=producto_json,
+                producto=producto_json, 
                 ciudad=ciudad,
                 nombre=nombre,
                 apellido=apellido,
-                ad_id=order.ad_id or "N/A"
+                ad_id=order.ad_id or "N/A",
             )
             db.add(new_order)
             db.commit()
             db.refresh(new_order)
+
             return schemas.OrderResponse.from_orm(new_order)
+
         except Exception as e:
             db.rollback()
             logging.error(f"Error al crear la orden: {str(e)}")
             raise HTTPException(status_code=500, detail="Error al crear la orden.")
+
 
 
 
@@ -263,43 +265,67 @@ class CRUDOrder:
             raise HTTPException(status_code=500, detail="Error al eliminar la orden.")
 
     def get_order_by_id(self, db: Session, order_id: int):
-        logging.info(f"Obteniendo la orden con ID {order_id}.")
-        return db.query(Order).filter(Order.id == order_id).first()
+        try:
+            order = db.query(Order).filter(Order.id == order_id).first()
+            if not order:
+                raise HTTPException(status_code=404, detail="Orden no encontrada.")
+            order_data = {
+                "id": order.id,
+                "phone": order.phone,
+                "email": order.email,
+                "address": order.address,
+                "ciudad": order.ciudad,
+                "productos": json.loads(order.producto),  
+                "nombre": order.nombre,
+                "apellido": order.apellido,
+                "ad_id": order.ad_id,
+            }
+            return order_data
+
+        except Exception as e:
+            logging.error(f"Error al obtener la orden: {str(e)}")
+            raise HTTPException(status_code=500, detail="Error al obtener la orden.")
+
 
     def get_all_orders(self, db: Session, skip: int = 0, limit: int = 10):
         logging.info(f"Obteniendo todas las órdenes. Saltar: {skip}, Límite: {limit}")
-        orders_query = db.execute(
-            select(
-                Order.id,
-                Order.phone,
-                Order.email,
-                Order.address,
-                Order.producto,
-                Order.cantidad_cajas,
-                Order.nombre,   
-                Order.apellido,  
-                Order.ad_id
-
-                
-            ).offset(skip).limit(limit)
-        )
-        orders = orders_query.fetchall()
         
+        try:
+            orders_query = db.execute(
+                select(
+                    Order.id,
+                    Order.phone,
+                    Order.email,
+                    Order.address,
+                    Order.producto,
+                    Order.cantidad_cajas,
+                    Order.ciudad,  
+                    Order.nombre,
+                    Order.apellido,
+                    Order.ad_id
+                ).offset(skip).limit(limit)
+            )
+            orders = orders_query.fetchall()
+            result = []
+            for order in orders:
+                result.append({
+                    "id": order.id,
+                    "phone": order.phone or "N/A",
+                    "email": order.email or "N/A",
+                    "address": order.address or "N/A",
+                    "ciudad": order.ciudad or "N/A", 
+                    "productos": json.loads(order.producto) if order.producto else [],  
+                    "cantidad_cajas": order.cantidad_cajas or 0,
+                    "nombre": order.nombre or "N/A",
+                    "apellido": order.apellido or "N/A",
+                    "ad_id": order.ad_id or "N/A"
+                })
 
-        return [
-            {
-                "id": order.id,
-                "phone": order.phone or "N/A",
-                "email": order.email or "N/A",
-                "address": order.address or "N/A",
-                "producto": order.producto,
-                "cantidad_cajas": order.cantidad_cajas,
-                "nombre": order.nombre or "N/A",   
-                "apellido": order.apellido or "N/A",
-                "ad_id": order.ad_id or "N/A"
-            }
-            for order in orders
-        ]
+            return result
+        except Exception as e:
+            logging.error(f"Error al obtener las órdenes: {str(e)}")
+            raise HTTPException(status_code=500, detail="Error al obtener las órdenes.")
+
 
 
 
@@ -350,7 +376,10 @@ class CRUDCiudad:
         Obtiene la ciudad basada en el prefijo del teléfono.
         """
         ciudad = db.query(Ciudad).filter(Ciudad.phone_prefix == prefix).first()
-        return ciudad.nombre if ciudad else None
+        if not ciudad:
+            logging.warning(f"No se encontró ciudad para el prefijo {prefix}.")
+            return "N/A"
+
 
 
     def add_products_to_city(

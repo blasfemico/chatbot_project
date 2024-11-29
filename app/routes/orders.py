@@ -86,24 +86,6 @@ class OrderService:
             raise HTTPException(status_code=404, detail="Orden no encontrada")
 
     @staticmethod
-    async def get_all_orders(db: Session) -> List[schemas.OrderResponse]:
-        orders = CRUDOrder().get_all_orders(db=db)
-        return [
-            {
-                "id": order.id,
-                "phone": order.phone or "N/A",      
-                "email": order.email or "N/A",      
-                "address": order.address or "N/A",  
-                "producto": json.loads(order.producto),
-                "cantidad_cajas": order.cantidad_cajas,
-                "nombre": order.nombre,
-                "apellido": order.apellido,
-                "ad_id": order.ad_id,
-            }
-            for order in orders
-        ]
-    
-    @staticmethod
     async def export_orders_to_excel(db: Session, file_path: Optional[str]) -> str:
         if not file_path:
             temp_dir = tempfile.mkdtemp()
@@ -160,15 +142,15 @@ async def get_all_orders(skip: int = 0, limit: int = 1000, db: Session = Depends
     orders = CRUDOrder().get_all_orders(db=db, skip=skip, limit=limit)
     return [
         {
-            "id": order["id"],                
-            "phone": order["phone"] or "N/A",   
-            "email": order["email"] or "N/A",
-            "address": order["address"] or "N/A",
-            "producto": order["producto"],
-            "cantidad_cajas": order["cantidad_cajas"],
-            "nombre": order["nombre"],
-            "apellido": order["apellido"],
-            "ad_id": order["ad_id"],
+              "id": order.id,
+                "phone": order.phone or "N/A",
+                "email": order.email or "N/A",
+                "address": order.address or "N/A",
+                "producto": json.loads(order.producto) if order.producto else [], 
+                "cantidad_cajas": order.cantidad_cajas,
+                "nombre": order.nombre,
+                "apellido": order.apellido,
+                "ad_id": order.ad_id,
 
         }
         for order in orders

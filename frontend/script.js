@@ -382,24 +382,38 @@ async function fetchOrders() {
         if (!response.ok) throw new Error(`Error: ${response.status} ${response.statusText}`);
         const orders = await response.json();
 
-        document.getElementById("orders-list").innerHTML = orders.map(order => `
-            <p>Orden ID: ${order.id} - 
-               Productos: ${order.producto.map(p => `${p.cantidad} de ${p.producto}`).join(", ")}, 
-               Cantidad: ${order.cantidad_cajas}, 
-               Teléfono: ${order.phone || "N/A"}, 
-               Email: ${order.email || "N/A"}, 
-               Dirección: ${order.address || "N/A"}, 
-               Nombre: ${order.nombre || "N/A"}, 
-               Apellido: ${order.apellido || "N/A"}, 
-               Ad ID: ${order.ad_id || "N/A"}
-               <button onclick="deleteOrder(${order.id})">Eliminar</button>
-            </p>
-        `).join("");
+        document.getElementById("orders-list").innerHTML = orders.map(order => {
+            let productos = [];
+            try {
+                productos = Array.isArray(order.producto) ? order.producto : JSON.parse(order.producto);
+            } catch (e) {
+                console.error("Error al parsear 'producto' en la orden:", e);
+                productos = [];
+            }
+
+            const productosString = productos.map(p => `${p.cantidad} de ${p.producto}`).join(", ");
+
+            return `
+                <p>
+                    Orden ID: ${order.id} - 
+                    Productos: ${productosString || "Sin productos"}, 
+                    Cantidad Total: ${order.cantidad_cajas || "N/A"}, 
+                    Teléfono: ${order.phone || "N/A"}, 
+                    Email: ${order.email || "N/A"}, 
+                    Dirección: ${order.address || "N/A"}, 
+                    Nombre: ${order.nombre || "N/A"}, 
+                    Apellido: ${order.apellido || "N/A"}, 
+                    Ad ID: ${order.ad_id || "N/A"}
+                    <button onclick="deleteOrder(${order.id})">Eliminar</button>
+                </p>
+            `;
+        }).join("");
     } catch (error) {
         console.error("Error al cargar órdenes:", error);
         document.getElementById("orders-list").innerHTML = "<p>Error al cargar órdenes.</p>";
     }
 }
+
 
 async function fetchOrderById() {
     const orderId = document.getElementById("orderId").value;
