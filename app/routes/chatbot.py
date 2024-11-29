@@ -310,19 +310,6 @@ class ChatbotService:
                 "ad_id": None,
                 "intencion_detectada": None,
             }
-
-        if sender_id not in ChatbotService.initial_message_sent or not ChatbotService.initial_message_sent[sender_id]:
-            ChatbotService.initial_message_sent[sender_id] = True
-            primer_producto = ChatbotService.extract_product_from_initial_message(question)
-            response = ChatbotService.generate_humanlike_response(
-                question,
-                db_response=db_response,
-                sender_id=sender_id,
-                ciudades_disponibles=list(productos_por_ciudad.keys()) + ciudades_disponibles,
-                primer_producto=primer_producto,
-                initial_message=True,
-            )
-            return {"respuesta": response}
         
         context = ChatbotService.user_contexts[sender_id][cuenta_id]
         logging.info(f"Contexto inicial para sender_id {sender_id}, cuenta_id {cuenta_id}: {context}")
@@ -437,6 +424,20 @@ class ChatbotService:
             )
             if faq_answer:
                 db_response = f"{faq_answer}\n\n{db_response}"
+                
+        if sender_id not in ChatbotService.initial_message_sent or not ChatbotService.initial_message_sent[sender_id]:
+            ChatbotService.initial_message_sent[sender_id] = True
+            primer_producto = ChatbotService.extract_product_from_initial_message(question)
+            response = ChatbotService.generate_humanlike_response(
+                question,
+                db_response=db_response,
+                sender_id=sender_id,
+                ciudades_disponibles=list(productos_por_ciudad.keys()) + ciudades_disponibles,
+                primer_producto=primer_producto,
+                initial_message=True,
+            )
+            return {"respuesta": response}
+        
         try:
             respuesta = ChatbotService.generate_humanlike_response(
                 sanitized_question, db_response,list(productos_por_ciudad.keys()) + ciudades_disponibles)
