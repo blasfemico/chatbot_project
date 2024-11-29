@@ -191,12 +191,14 @@ class CRUDOrder:
         delivery_day = "lunes" if today == 5 else "mañana"
         return f"Su pedido se entregará el {delivery_day}."
 
+    
     def create_order(self, db: Session, order: schemas.OrderCreate, nombre: str, apellido: str) -> schemas.OrderResponse:
         try:
             if not order.phone:
                 raise HTTPException(status_code=400, detail="El campo 'phone' es obligatorio.")
             if not order.producto or len(order.producto) == 0:
                 raise HTTPException(status_code=400, detail="Debe incluir al menos un producto.")
+            
             producto_json = json.dumps(order.producto)
 
             ciudad = CRUDCiudad.get_city_by_phone_prefix(db, order.phone[:3]) or "N/A"
@@ -213,8 +215,19 @@ class CRUDOrder:
             db.add(new_order)
             db.commit()
             db.refresh(new_order)
-
-            return schemas.OrderResponse.from_orm(new_order)
+            productos_deserializados = json.loads(new_order.producto)
+            return schemas.OrderResponse(
+                id=new_order.id,
+                phone=new_order.phone,
+                email=new_order.email,
+                address=new_order.address,
+                ciudad=new_order.ciudad,
+                productos=productos_deserializados,
+                cantidad_cajas=new_order.cantidad_cajas,
+                nombre=new_order.nombre,
+                apellido=new_order.apellido,
+                ad_id=new_order.ad_id,
+            )
 
         except Exception as e:
             db.rollback()
