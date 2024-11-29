@@ -368,7 +368,13 @@ class ChatbotService:
         ):
             logging.info("Datos completos para crear la orden.")
             context["intencion_detectada"] = "crear_orden"
-            return await ChatbotService.ask_question(question, sender_id, db, hacer_order=True)
+            return await ChatbotService.ask_question(
+                question=question,
+                sender_id=sender_id,
+                cuenta_id=cuenta_id, 
+                db=db,               
+                hacer_order=True
+            )
         ciudades_disponibles = CRUDCiudad.get_all_cities(db)
         ciudades_nombres = [ciudad.nombre.lower() for ciudad in ciudades_disponibles]  
 
@@ -585,17 +591,17 @@ class ChatbotService:
 
         nombres_productos = [producto.nombre for producto in productos]
 
-        # **Primera lógica**: Buscar con el patrón "X cajas de producto"
+
         cantidad_matches = re.findall(r"(\d+)\s*cajas?\s*de\s*(\w+)", text, re.IGNORECASE)
         if cantidad_matches:
             for match in cantidad_matches:
-                # Validar que la coincidencia tenga suficientes elementos
+          
                 if len(match) >= 2:
                     cantidad, producto = int(match[0]), match[1]
                     if producto in nombres_productos:
                         productos_detectados.append({"producto": producto, "cantidad": cantidad})
 
-        # **Segunda lógica**: Usar embeddings para encontrar similitud con los nombres de productos
+  
         if not productos_detectados:
             text_embedding = ChatbotService.model.encode(text, convert_to_tensor=True)
             productos_embeddings = ChatbotService.model.encode(nombres_productos, convert_to_tensor=True)
@@ -608,7 +614,7 @@ class ChatbotService:
             if max_similarity_value >= threshold:
                 producto_detectado = nombres_productos[max_similarity_index]
                 cantidad_match = re.findall(r"\b(\d+)\b", text)
-                cantidad = int(cantidad_match[0]) if cantidad_match else 1  # Cantidad predeterminada es 1
+                cantidad = int(cantidad_match[0]) if cantidad_match else 1  
                 productos_detectados.append({"producto": producto_detectado, "cantidad": cantidad})
 
         if not productos_detectados:
@@ -846,7 +852,7 @@ class FacebookService:
                 logging.warning(f"No se encontró ninguna cuenta para page_id {page_id}")
                 continue
 
-            cuenta_id = cuenta.id  # Identificador de la cuenta
+            cuenta_id = cuenta.id 
             for event in entry.get("messaging", []):
                 message_id = event.get("message", {}).get("mid")
                 if message_id in processed_message_ids:
@@ -856,7 +862,7 @@ class FacebookService:
                 processed_message_ids.add(message_id) 
 
                 if "message" in event and not event.get("message", {}).get("is_echo"):
-                    sender_id = event["sender"]["id"]  # Identificador del usuario
+                    sender_id = event["sender"]["id"]  
                     message_text = event["message"].get("text", "").strip()
                     api_keys = FacebookService.load_api_keys()
                     api_key = api_keys.get(page_id)
@@ -864,7 +870,7 @@ class FacebookService:
                         logging.error(f"No se encontró una API Key para la página con ID {page_id}")
                         continue
 
-                    # Manejo del contexto para la combinación sender_id + cuenta_id
+
                     if not ChatbotService.user_contexts.get(sender_id, {}).get(cuenta_id):
                         user_profile = FacebookService.get_user_profile(sender_id, api_key)
                         if user_profile:
@@ -880,7 +886,6 @@ class FacebookService:
                             })
 
                     try:
-                        # Llamada a ask_question con ambos IDs
                         response_data = await ChatbotService.ask_question(
                             question=message_text,
                             sender_id=sender_id,
