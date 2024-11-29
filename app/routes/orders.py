@@ -16,6 +16,26 @@ import json
 router = APIRouter()
 
 class OrderService:
+    @staticmethod
+    def parse_product_input(input_text: str) -> List[dict]:
+        """
+        Convierte cadenas de entrada como "5 cajas de Acxion y 3 cajas de Redotex"
+        en una lista de diccionarios.
+        """
+        productos = []
+        try:
+            items = input_text.lower().split("y")  # Separar por "y" para múltiples productos
+            for item in items:
+                match = re.match(r"(\d+)\s+cajas\s+de\s+(.+)", item.strip(), re.IGNORECASE)
+                if match:
+                    cantidad = int(match.group(1))
+                    producto = match.group(2).strip()
+                    productos.append({"producto": producto, "cantidad": cantidad})
+        except Exception as e:
+            raise ValueError(f"Error al procesar la entrada de productos: {e}")
+        return productos
+
+
    
     @staticmethod
     def get_safe_file_path(directory: str, filename: str = "ordenes_exportadas.xlsx") -> str:
@@ -27,20 +47,19 @@ class OrderService:
    
     @staticmethod
     async def create_order(order_data: schemas.OrderCreate, db: Session, nombre: str = "N/A", apellido: str = "N/A") -> dict:
+        """
+        Crea una orden asegurándose de que el campo 'producto' esté en el formato correcto.
+        """
         try:
-            # Validar y transformar producto
             if isinstance(order_data.producto, str):
-                # Convertir string en una lista con un solo producto
-                order_data.producto = [{"producto": order_data.producto, "cantidad": 1}]
-            
-            if not isinstance(order_data.producto, list):
-                raise ValueError("El campo 'producto' debe ser una lista.")
-
+                order_data.producto = OrderService.parse_product_input(order_data.producto)
+            elif isinstance(order_data.producto, dict):
+                order_data.producto = [order_data.producto]
+            elif not isinstance(order_data.producto, list):
+                raise ValueError("El campo 'producto' debe ser una lista, un string o un diccionario.")
             for prod in order_data.producto:
                 if not isinstance(prod, dict) or "producto" not in prod or "cantidad" not in prod:
                     raise ValueError("Cada elemento en 'producto' debe contener 'producto' y 'cantidad'.")
-
-            # Crear la orden
             crud_order = CRUDOrder()
             new_order = crud_order.create_order(db=db, order=order_data, nombre=nombre, apellido=apellido)
             delivery_message = CRUDOrder.get_delivery_day_message()
@@ -54,8 +73,6 @@ class OrderService:
         except Exception as e:
             logging.error(f"Error al crear la orden: {e}")
             raise HTTPException(status_code=500, detail="Error al crear el pedido.")
-
-
 
 
     @staticmethod
@@ -149,9 +166,19 @@ async def get_orders(skip: int = 0, limit: int = 10, db: Session = Depends(get_d
 async def delete_order(order_id: int, db: Session = Depends(get_db)):
     return await OrderService.delete_order(order_id, db)
 
-@router.post("/orders/create_from_chat", response_model=Dict[str, str])
+@router.post("/orders/create_from_chat", response_model=dict)
 async def create_order_from_chat(order_data: schemas.OrderCreate, db: Session = Depends(get_db)):
-    return await OrderService.create_order(order_data, db)
+    try:
+        if isinstance(order_data.producto, str):
+            order_data.producto = OrderService.parse_product_input(order_data.producto)
+
+        return await OrderService.create_order(order_data, db)
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        logging.error(f"Error al crear la orden desde el chat: {e}")
+        raise HTTPException(status_code=500, detail="Error al crear la orden.")
+
 
 @router.get("/orders/all/", response_model=List[schemas.OrderResponse])
 async def get_all_orders(skip: int = 0, limit: int = 1000, db: Session = Depends(get_db)):

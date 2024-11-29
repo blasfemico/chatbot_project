@@ -507,6 +507,19 @@ class ChatbotService:
 
         logging.info(f"Contexto actualizado para sender_id {sender_id}, cuenta_id {cuenta_id}: {context}")
 
+    def parse_product_input(input_text: str) -> List[dict]:
+        productos = []
+        try:
+            items = input_text.lower().split("y")
+            for item in items:
+                match = re.match(r"(\d+)\s+cajas\s+de\s+(.+)", item.strip(), re.IGNORECASE)
+                if match:
+                    cantidad = int(match.group(1))
+                    producto = match.group(2).strip()
+                    productos.append({"producto": producto, "cantidad": cantidad})
+        except Exception as e:
+            raise ValueError(f"Error al procesar la entrada de productos: {e}")
+        return productos
 
 
 
@@ -532,9 +545,7 @@ class ChatbotService:
 
         nombre = context.get("nombre", "Cliente")
         apellido = context.get("apellido", "Apellido")
-        productos = context["productos"]  # No usar json.dumps aquí
-
-        # Validar estructura de productos
+        productos = context["productos"]  
         if not isinstance(productos, list) or not all(isinstance(p, dict) for p in productos):
             logging.error("La estructura de productos no es válida.")
             return {"respuesta": "Error interno: Estructura de productos inválida."}
@@ -548,7 +559,7 @@ class ChatbotService:
                     email=None,
                     address=None,
                     producto=producto.get("producto"),
-                    cantidad_cajas=producto.get("cantidad", 1),  # Default a 1 si no existe "cantidad"
+                    cantidad_cajas=producto.get("cantidad", 1),  
                     ciudad=context["ciudad"],
                     ad_id=context.get("ad_id", "N/A"),
                 )
