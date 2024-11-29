@@ -83,6 +83,7 @@ class ChatbotService:
         primer_producto: str = "Acxion", 
         initial_message: bool = False,  
     ) -> str:
+        logging.info(f"Recibido db_response en generate_humanlike_response: {db_response}")
         if not ciudades_disponibles or not isinstance(ciudades_disponibles, list):
             raise ValueError("El parámetro 'ciudades_disponibles' debe ser una lista no vacía.")
         if not productos_por_ciudad or not isinstance(productos_por_ciudad, dict):
@@ -94,6 +95,10 @@ class ChatbotService:
         [f"{ciudad.capitalize()}: {', '.join(map(str, productos))}" for ciudad, productos in productos_por_ciudad.items()]
     )
         
+        if not db_response or "(revisar base de datos)" in db_response:
+            logging.warning("db_response no contiene precios válidos o está mal formateado.")
+            db_response = "No hay datos de precios disponibles en este momento"
+
         ChatbotService.update_keywords_based_on_feedback(question)
         initial_message = ChatbotService.initial_message_sent.get(sender_id, False)
 
@@ -411,7 +416,7 @@ class ChatbotService:
             intent_data = {"intent": "otro"}
         if intent_data.get("intent") == "listar_productos":
             context["intencion_detectada"] = "listar_productos"
-            productos = crud_producto.get_productos_by_cuenta(db, sender_id)
+            productos = crud_producto.get_productos_by_cuenta(db, cuenta_id)
             db_response = "\n".join([f"{prod['producto']}: Precio {prod['precio']} pesos" for prod in productos])
             context["intencion_detectada"] = None
             return {"respuesta": db_response}
@@ -433,7 +438,7 @@ class ChatbotService:
 
         else:
             faq_answer = await ChatbotService.search_faq_in_db(sanitized_question, db)
-            productos = crud_producto.get_productos_by_cuenta(db, sender_id)
+            productos = crud_producto.get_productos_by_cuenta(db, cuenta_id)
             db_response = "\n".join(
                 [f"{prod['producto']}: Precio {prod['precio']} pesos" for prod in productos]
             )
