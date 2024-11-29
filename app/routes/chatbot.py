@@ -532,31 +532,37 @@ class ChatbotService:
 
         nombre = context.get("nombre", "Cliente")
         apellido = context.get("apellido", "Apellido")
-        productos = json.dumps(context["producto"])
+        productos = context["productos"]  # No usar json.dumps aquí
+
+        # Validar estructura de productos
+        if not isinstance(productos, list) or not all(isinstance(p, dict) for p in productos):
+            logging.error("La estructura de productos no es válida.")
+            return {"respuesta": "Error interno: Estructura de productos inválida."}
+
         responses = []
 
         for producto in productos:
-            order_data = OrderCreate(
-                phone=telefono,
-                email=None,
-                address=None,
-                producto=producto["producto"],
-                cantidad_cajas=producto["cantidad"],
-                ciudad=context["ciudad"],
-                ad_id=context.get("ad_id", "N/A"),
-            )
-
             try:
+                order_data = OrderCreate(
+                    phone=telefono,
+                    email=None,
+                    address=None,
+                    producto=producto.get("producto"),
+                    cantidad_cajas=producto.get("cantidad", 1),  # Default a 1 si no existe "cantidad"
+                    ciudad=context["ciudad"],
+                    ad_id=context.get("ad_id", "N/A"),
+                )
+
                 logging.info(f"Llamando a create_order con: order_data={order_data}, nombre={nombre}, apellido={apellido}")
                 result = await OrderService.create_order(order_data, db, nombre, apellido)
                 logging.info(f"Resultado de creación de la orden: {result}")
-                responses.append(f"✅ Pedido de {producto['cantidad']} cajas de {producto['producto']} registrado con éxito.")
+                responses.append(f"✅ Pedido de {producto.get('cantidad', 1)} cajas de {producto.get('producto')} registrado con éxito.")
             except HTTPException as e:
-                logging.error(f"Error HTTP al crear la orden para {producto['producto']}: {str(e)}")
-                responses.append(f"❌ Error al registrar el pedido de {producto['producto']}: {str(e)}.")
+                logging.error(f"Error HTTP al crear la orden para {producto.get('producto')}: {str(e)}")
+                responses.append(f"❌ Error al registrar el pedido de {producto.get('producto')}: {str(e)}.")
             except Exception as e:
-                logging.error(f"Error inesperado al crear la orden para {producto['producto']}: {str(e)}")
-                responses.append(f"❌ Error técnico al registrar el pedido de {producto['producto']}: {str(e)}.")
+                logging.error(f"Error inesperado al crear la orden para {producto.get('producto')}: {str(e)}")
+                responses.append(f"❌ Error técnico al registrar el pedido de {producto.get('producto')}: {str(e)}.")
 
         response_text = (
             f"✅ Su pedido ya quedó programado!\n\n"
@@ -569,8 +575,7 @@ class ChatbotService:
 
         return {"respuesta": response_text + "\n\n" + "\n".join(responses)}
 
-
-    
+        
     @staticmethod
     def extract_phone_number(text: str):
         phone_match = re.search(r"\+?\d{10,15}", text)
