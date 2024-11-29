@@ -22,7 +22,7 @@ from sentence_transformers import SentenceTransformer, util
 from datetime import date
 import re
 from json import JSONDecodeError
-import schemas
+from app import schemas
 import logging
 from cachetools import TTLCache
 import re 

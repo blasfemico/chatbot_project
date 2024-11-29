@@ -47,31 +47,19 @@ class OrderService:
    
     @staticmethod
     async def create_order(order_data: schemas.OrderCreate, db: Session, nombre: str = "N/A", apellido: str = "N/A") -> dict:
-        """
-        Crea una orden asegurándose de que el campo 'producto' esté en el formato correcto.
-        """
         try:
-            # Validar y transformar el campo 'producto'
             if isinstance(order_data.producto, str):
-                # Parsear cadena de texto a lista de diccionarios
                 order_data.producto = OrderService.parse_product_input(order_data.producto)
-            elif isinstance(order_data.producto, dict):
-                # Convertir dict a lista de un único elemento
-                order_data.producto = [order_data.producto]
             elif isinstance(order_data.producto, list):
-                # Validar que todos los elementos de la lista sean dicts con claves requeridas
-                for prod in order_data.producto:
-                    if not isinstance(prod, dict) or "producto" not in prod or "cantidad" not in prod:
-                        raise ValueError("Cada elemento en 'producto' debe ser un diccionario con las claves 'producto' y 'cantidad'.")
+                order_data.producto = [
+                    {"producto": prod["producto"], "cantidad": prod.get("cantidad", 1)}
+                    for prod in order_data.producto if isinstance(prod, dict)
+                ]
             else:
-                # Lanzar error si el formato no es válido
-                raise ValueError("El campo 'producto' debe ser una lista, un string o un diccionario.")
-
-            # Crear la orden en la base de datos
+                raise ValueError("El campo 'producto' debe ser una lista o un string.")
             crud_order = CRUDOrder()
             new_order = crud_order.create_order(db=db, order=order_data, nombre=nombre, apellido=apellido)
 
-            # Mensaje de confirmación
             delivery_message = CRUDOrder.get_delivery_day_message()
             return {
                 "message": f"Gracias por su pedido. {delivery_message}",
