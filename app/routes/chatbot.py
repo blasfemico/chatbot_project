@@ -78,10 +78,16 @@ class ChatbotService:
         db_response: str,
         sender_id: str,
         ciudades_disponibles: list,
+        productos_por_ciudad: dict,
         chat_history: str = "",
         primer_producto: str = "Acxion", 
         initial_message: bool = False,  
     ) -> str:
+        if not ciudades_disponibles or not isinstance(ciudades_disponibles, list):
+            raise ValueError("El parámetro 'ciudades_disponibles' debe ser una lista no vacía.")
+        if not productos_por_ciudad or not isinstance(productos_por_ciudad, dict):
+            raise ValueError("El parámetro 'productos_por_ciudad' debe ser un diccionario no vacío.")
+
         ciudades_str = ", ".join(ciudades_disponibles)
         ChatbotService.update_keywords_based_on_feedback(question)
         initial_message = ChatbotService.initial_message_sent.get(sender_id, False)
@@ -136,6 +142,10 @@ class ChatbotService:
 
     {chat_history}
     
+    - Ciudades disponibles: {ciudades_str}
+
+    - Productos por ciudad:
+      {productos_por_ciudad}
 
     Instrucciones para responder:
     - Evita decir segun nuestra informacion de base de datos o que sacas la informacion de la base de datos, directamente di la respuesta, en NINGUNA RESPUESTA, incluyas que sacas la informacion de la base de datos
@@ -424,15 +434,16 @@ class ChatbotService:
             )
             if faq_answer:
                 db_response = f"{faq_answer}\n\n{db_response}"
-                
+
         if sender_id not in ChatbotService.initial_message_sent or not ChatbotService.initial_message_sent[sender_id]:
             ChatbotService.initial_message_sent[sender_id] = True
             primer_producto = ChatbotService.extract_product_from_initial_message(question)
             response = ChatbotService.generate_humanlike_response(
-                question,
+                question=sanitized_question,
                 db_response=db_response,
                 sender_id=sender_id,
-                ciudades_disponibles=list(productos_por_ciudad.keys()) + ciudades_disponibles,
+                productos_por_ciudad=productos_por_ciudad,
+                ciudades_disponibles=ciudades_disponibles,
                 primer_producto=primer_producto,
                 initial_message=True,
             )
@@ -440,7 +451,7 @@ class ChatbotService:
         
         try:
             respuesta = ChatbotService.generate_humanlike_response(
-                sanitized_question, db_response,list(productos_por_ciudad.keys()) + ciudades_disponibles)
+                sanitized_question, db_response,list(productos_por_ciudad.keys()) + ciudades_disponibles, sender_id=sender_id)
         except Exception as e:
             logging.error(f"Error al generar respuesta humanlike: {str(e)}")
             respuesta = "Hubo un problema al procesar tu solicitud. Por favor, intenta de nuevo más tarde."
