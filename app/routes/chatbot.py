@@ -448,10 +448,15 @@ class ChatbotService:
                 initial_message=True,
             )
             return {"respuesta": response}
-        
         try:
             respuesta = ChatbotService.generate_humanlike_response(
-                sanitized_question, db_response,list(productos_por_ciudad.keys()) + ciudades_disponibles, sender_id=sender_id)
+                question=sanitized_question, 
+                db_response=db_response, 
+                sender_id=sender_id,
+                ciudades_disponibles=ciudades_disponibles,
+                productos_por_ciudad=productos_por_ciudad,
+              )
+
         except Exception as e:
             logging.error(f"Error al generar respuesta humanlike: {str(e)}")
             respuesta = "Hubo un problema al procesar tu solicitud. Por favor, intenta de nuevo más tarde."
