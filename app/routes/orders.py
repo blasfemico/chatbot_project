@@ -51,29 +51,39 @@ class OrderService:
         Crea una orden asegurándose de que el campo 'producto' esté en el formato correcto.
         """
         try:
+            # Validar y transformar el campo 'producto'
             if isinstance(order_data.producto, str):
+                # Parsear cadena de texto a lista de diccionarios
                 order_data.producto = OrderService.parse_product_input(order_data.producto)
             elif isinstance(order_data.producto, dict):
+                # Convertir dict a lista de un único elemento
                 order_data.producto = [order_data.producto]
-            elif not isinstance(order_data.producto, list):
+            elif isinstance(order_data.producto, list):
+                # Validar que todos los elementos de la lista sean dicts con claves requeridas
+                for prod in order_data.producto:
+                    if not isinstance(prod, dict) or "producto" not in prod or "cantidad" not in prod:
+                        raise ValueError("Cada elemento en 'producto' debe ser un diccionario con las claves 'producto' y 'cantidad'.")
+            else:
+                # Lanzar error si el formato no es válido
                 raise ValueError("El campo 'producto' debe ser una lista, un string o un diccionario.")
-            for prod in order_data.producto:
-                if not isinstance(prod, dict) or "producto" not in prod or "cantidad" not in prod:
-                    raise ValueError("Cada elemento en 'producto' debe contener 'producto' y 'cantidad'.")
+
+            # Crear la orden en la base de datos
             crud_order = CRUDOrder()
             new_order = crud_order.create_order(db=db, order=order_data, nombre=nombre, apellido=apellido)
+
+            # Mensaje de confirmación
             delivery_message = CRUDOrder.get_delivery_day_message()
             return {
                 "message": f"Gracias por su pedido. {delivery_message}",
                 "order": new_order
             }
+
         except ValueError as ve:
             logging.error(f"Error en el campo 'producto': {ve}")
             raise HTTPException(status_code=400, detail=str(ve))
         except Exception as e:
             logging.error(f"Error al crear la orden: {e}")
             raise HTTPException(status_code=500, detail="Error al crear el pedido.")
-
 
     @staticmethod
     async def update_order(order_id: int, order_data: schemas.OrderUpdate, db: Session) -> dict:
