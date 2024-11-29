@@ -100,7 +100,7 @@ class ChatbotService:
 
 
         **Condiciones especiales:**
-        - Si `{initial_message}` es falso (es el primer mensaje del cliente), responde con el siguiente texto:
+        - Si `{initial_message}` es falso (es el primer mensaje del cliente), responde con el siguiente texto con la informacion de {db_response}, remplaza los (revisar base de datos) por informacion de la base de datos:
         
             Hola, te comparto información de mi producto estrella:
 
@@ -439,8 +439,7 @@ class ChatbotService:
                 db_response = f"{faq_answer}\n\n{db_response}"
         try:
             respuesta = ChatbotService.generate_humanlike_response(
-                sanitized_question, db_response, list(productos_por_ciudad.keys(), ciudades_disponibles)
-            )
+                sanitized_question, db_response,list(productos_por_ciudad.keys()) + ciudades_disponibles)
         except Exception as e:
             logging.error(f"Error al generar respuesta humanlike: {str(e)}")
             respuesta = "Hubo un problema al procesar tu solicitud. Por favor, intenta de nuevo más tarde."
