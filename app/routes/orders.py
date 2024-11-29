@@ -19,14 +19,13 @@ class OrderService:
     @staticmethod
     def parse_product_input(input_text: str) -> List[dict]:
         """
-        Convierte cadenas de entrada como "5 cajas de Acxion y 3 cajas de Redotex"
-        en una lista de diccionarios.
+        Convierte cadenas como '5 cajas de Acxion y 3 cajas de Redotex' en listas de diccionarios.
         """
         productos = []
         try:
-            items = input_text.lower().split("y")  # Separar por "y" para múltiples productos
+            items = re.split(r"\s*y\s*", input_text.lower())  # Separar por "y"
             for item in items:
-                match = re.match(r"(\d+)\s+cajas\s+de\s+(.+)", item.strip(), re.IGNORECASE)
+                match = re.match(r"(\d+)\s*cajas?\s+de\s+(.+)", item.strip())
                 if match:
                     cantidad = int(match.group(1))
                     producto = match.group(2).strip()
@@ -34,6 +33,7 @@ class OrderService:
         except Exception as e:
             raise ValueError(f"Error al procesar la entrada de productos: {e}")
         return productos
+
 
 
    

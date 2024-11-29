@@ -11,7 +11,7 @@ from app.models import (
 from app.crud import CRUDProduct, FAQCreate, CRUDFaq, CRUDCiudad
 from app.routes.orders import OrderService
 from app.schemas import Cuenta as CuentaSchema
-from app.schemas import FAQSchema, FAQUpdate, OrderCreate, APIKeyCreate
+from app.schemas import FAQSchema, FAQUpdate, APIKeyCreate
 from app.config import settings
 from openai import OpenAI
 import json
@@ -22,7 +22,7 @@ from sentence_transformers import SentenceTransformer, util
 from datetime import date
 import re
 from json import JSONDecodeError
-
+import schemas
 import logging
 from cachetools import TTLCache
 import re 
@@ -483,10 +483,11 @@ class ChatbotService:
         return {"respuesta": respuesta}
 
 
-
-
     @staticmethod
     def update_context(sender_id: str, cuenta_id: int, producto: str, cantidad: int):
+        """
+        Actualiza el contexto del usuario para incluir el producto en el formato correcto.
+        """
         if sender_id not in ChatbotService.user_contexts:
             ChatbotService.user_contexts[sender_id] = {}
 
@@ -507,12 +508,17 @@ class ChatbotService:
 
         logging.info(f"Contexto actualizado para sender_id {sender_id}, cuenta_id {cuenta_id}: {context}")
 
+
+    @staticmethod
     def parse_product_input(input_text: str) -> List[dict]:
+        """
+        Convierte cadenas como '5 cajas de Acxion y 3 cajas de Redotex' en listas de diccionarios.
+        """
         productos = []
         try:
-            items = input_text.lower().split("y")
+            items = re.split(r"\s*y\s*", input_text.lower())  # Separar por "y"
             for item in items:
-                match = re.match(r"(\d+)\s+cajas\s+de\s+(.+)", item.strip(), re.IGNORECASE)
+                match = re.match(r"(\d+)\s*cajas?\s+de\s+(.+)", item.strip())
                 if match:
                     cantidad = int(match.group(1))
                     producto = match.group(2).strip()
@@ -523,11 +529,11 @@ class ChatbotService:
 
 
 
+
     @staticmethod
     async def create_order_from_context(sender_id: str, cuenta_id: int, db: Session) -> dict:
         """
-        Crea la orden utilizando el contexto actual y detecta la ciudad automáticamente
-        si no se encuentra explícita en el contexto.
+        Crea la orden utilizando el contexto actual y asegura que los productos tengan el formato correcto.
         """
         context = ChatbotService.user_contexts.get(sender_id, {}).get(cuenta_id)
         if not context or not context.get("productos"):
@@ -536,30 +542,31 @@ class ChatbotService:
         logging.info(f"Creando orden con el contexto: {context}")
         telefono = context.get("telefono")
         if telefono and not context.get("ciudad"):
-            location_code = telefono[:3]  
+            location_code = telefono[:3]
             ciudad = CRUDCiudad.get_city_by_phone_prefix(db, location_code)
             if ciudad:
                 context["ciudad"] = ciudad
             else:
-                context["ciudad"] = "N/A"  
+                context["ciudad"] = "N/A"
 
         nombre = context.get("nombre", "Cliente")
         apellido = context.get("apellido", "Apellido")
-        productos = context["productos"]  
-        if not isinstance(productos, list) or not all(isinstance(p, dict) for p in productos):
-            logging.error("La estructura de productos no es válida.")
-            return {"respuesta": "Error interno: Estructura de productos inválida."}
+        productos = context["productos"]
 
         responses = []
 
         for producto in productos:
             try:
-                order_data = OrderCreate(
+                producto_formateado = [
+                    {"producto": producto.get("producto"), "cantidad": producto.get("cantidad", 1)}
+                ]
+                
+                order_data = schemas.OrderCreate(
                     phone=telefono,
                     email=None,
                     address=None,
-                    producto=producto.get("producto"),
-                    cantidad_cajas=producto.get("cantidad", 1),  
+                    producto=producto_formateado,  
+                    cantidad_cajas=producto.get("cantidad", 1),
                     ciudad=context["ciudad"],
                     ad_id=context.get("ad_id", "N/A"),
                 )
@@ -586,7 +593,7 @@ class ChatbotService:
 
         return {"respuesta": response_text + "\n\n" + "\n".join(responses)}
 
-        
+            
     @staticmethod
     def extract_phone_number(text: str):
         phone_match = re.search(r"\+?\d{10,15}", text)
