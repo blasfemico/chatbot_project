@@ -384,7 +384,7 @@ async function fetchOrders() {
 
         document.getElementById("orders-list").innerHTML = orders.map(order => `
             <p>Orden ID: ${order.id} - 
-               Producto: ${order.producto}, 
+               Productos: ${order.producto.map(p => `${p.cantidad} de ${p.producto}`).join(", ")}, 
                Cantidad: ${order.cantidad_cajas}, 
                Teléfono: ${order.phone || "N/A"}, 
                Email: ${order.email || "N/A"}, 

@@ -11,6 +11,7 @@ from typing import Optional
 from fastapi.responses import FileResponse
 import re
 import tempfile
+import json
 
 router = APIRouter()
 
@@ -93,7 +94,7 @@ class OrderService:
                 "phone": order.phone or "N/A",      
                 "email": order.email or "N/A",      
                 "address": order.address or "N/A",  
-                "producto": order.producto,
+                "producto": json.loads(order.producto),
                 "cantidad_cajas": order.cantidad_cajas,
                 "nombre": order.nombre,
                 "apellido": order.apellido,

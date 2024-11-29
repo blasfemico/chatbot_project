@@ -198,15 +198,15 @@ class CRUDOrder:
             if not order.producto:
                 raise HTTPException(status_code=400, detail="El campo 'producto' es obligatorio.")
 
-            logging.info(f"Creando nueva orden con datos: phone={order.phone}, email={order.email}, address={order.address}, "
-                        f"producto={order.producto}, cantidad_cajas={order.cantidad_cajas}, nombre={nombre}, apellido={apellido}")
+            producto_json = json.dumps(order.producto) 
+            ciudad = CRUDCiudad.get_city_by_phone_prefix(db, order.phone[:3]) or "N/A"
 
             new_order = Order(
                 phone=order.phone,
                 email=order.email or "N/A",
                 address=order.address or "N/A",
-                producto=order.producto,
-                cantidad_cajas=order.cantidad_cajas or 1,
+                producto=producto_json,
+                ciudad=ciudad,
                 nombre=nombre,
                 apellido=apellido,
                 ad_id=order.ad_id or "N/A"
@@ -215,18 +215,10 @@ class CRUDOrder:
             db.commit()
             db.refresh(new_order)
             return schemas.OrderResponse.from_orm(new_order)
-        except IntegrityError as e:
-            db.rollback()
-            logging.error(f"Error de integridad al crear la orden: {str(e)}")
-            raise HTTPException(status_code=400, detail="Error de integridad en la base de datos.")
-        except SQLAlchemyError as e:
-            db.rollback()
-            logging.error(f"Error general de SQLAlchemy al crear la orden: {str(e)}")
-            raise HTTPException(status_code=500, detail="Error en la base de datos.")
         except Exception as e:
             db.rollback()
-            logging.error(f"Error inesperado al crear la orden: {str(e)}")
-            raise HTTPException(status_code=500, detail="Error inesperado al crear la orden.")
+            logging.error(f"Error al crear la orden: {str(e)}")
+            raise HTTPException(status_code=500, detail="Error al crear la orden.")
 
 
 

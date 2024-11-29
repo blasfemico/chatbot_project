@@ -19,6 +19,7 @@ class Order(Base):
     email = Column(String, default="N/A")
     address = Column(String, default="N/A")
     producto = Column(String, nullable=False)
+    ciudad = Column(String, default="N/A")  
     cantidad_cajas = Column(Integer, default=1)
     ad_id = Column(String, nullable=True)
     nombre = Column(String, default="N/A")  

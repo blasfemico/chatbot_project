@@ -532,8 +532,7 @@ class ChatbotService:
 
         nombre = context.get("nombre", "Cliente")
         apellido = context.get("apellido", "Apellido")
-
-        productos = context["productos"]
+        productos = json.dumps(context["producto"])
         responses = []
 
         for producto in productos:
