@@ -117,12 +117,12 @@ class ChatbotService:
             Contenido: 30 tabletas por caja.
 
             Precio normal:
-            1 caja: (revisar base de datos para el precio de una caja)
+            1 caja: (revisar base de datos)
             PROMOCIONES:
-            2 cajas: (revisar base de datos para el precio de dos cajas)
-            3 cajas: (revisar base de datos para el precio de tres cajas)
-            4 cajas: (revisar base de datos para el precio de cuatro cajas)
-            5 cajas: (revisar base de datos para el precio de cinco cajas)
+            2 cajas: (revisar base de datos)
+            3 cajas: (revisar base de datos)
+            4 cajas: (revisar base de datos)
+            5 cajas: (revisar base de datos) 
 
             ¡Entrega a domicilio GRATIS y pagas al recibir!
 
@@ -316,7 +316,7 @@ class ChatbotService:
             primer_producto = ChatbotService.extract_product_from_initial_message(question)
             response = ChatbotService.generate_humanlike_response(
                 question,
-                db_response="",
+                db_response=db_response,
                 sender_id=sender_id,
                 ciudades_disponibles=list(productos_por_ciudad.keys()) + ciudades_disponibles,
                 primer_producto=primer_producto,
