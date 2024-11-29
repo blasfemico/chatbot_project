@@ -88,7 +88,12 @@ class ChatbotService:
         if not productos_por_ciudad or not isinstance(productos_por_ciudad, dict):
             raise ValueError("El parámetro 'productos_por_ciudad' debe ser un diccionario no vacío.")
 
-        ciudades_str = ", ".join(ciudades_disponibles)
+        ciudades_str = ", ".join([str(ciudad) for ciudad in ciudades_disponibles])
+
+        productos_por_ciudad_str = "\n".join(
+        [f"{ciudad.capitalize()}: {', '.join(map(str, productos))}" for ciudad, productos in productos_por_ciudad.items()]
+    )
+        
         ChatbotService.update_keywords_based_on_feedback(question)
         initial_message = ChatbotService.initial_message_sent.get(sender_id, False)
 
@@ -145,7 +150,7 @@ class ChatbotService:
     - Ciudades disponibles: {ciudades_str}
 
     - Productos por ciudad:
-      {productos_por_ciudad}
+      {productos_por_ciudad_str}
 
     Instrucciones para responder:
     - Evita decir segun nuestra informacion de base de datos o que sacas la informacion de la base de datos, directamente di la respuesta, en NINGUNA RESPUESTA, incluyas que sacas la informacion de la base de datos
