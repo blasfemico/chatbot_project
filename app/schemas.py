@@ -58,21 +58,24 @@ class OrderCreate(BaseModel):
     phone: str
     email: Optional[str] = "N/A"
     address: Optional[str] = "N/A"
-    producto: str
+    ciudad: Optional[str] = None  
+    producto: List[dict] 
     cantidad_cajas: Optional[int] = 1
     nombre: Optional[str] = None
     apellido: Optional[str] = None
-    ad_id: Optional[str] = None 
+    ad_id: Optional[str] = None
 
 class OrderResponse(BaseModel):
     id: int
     phone: str
-    email: str
-    address: str
-    producto: str
-    cantidad_cajas: int
-    nombre: str
-    apellido: str
+    email: Optional[str]
+    address: Optional[str]
+    ciudad: Optional[str]
+    productos: List[dict]  
+    cantidad_cajas: int    
+    nombre: Optional[str]
+    apellido: Optional[str]
+    ad_id: Optional[str]
 
     class Config:
         from_attributes = True

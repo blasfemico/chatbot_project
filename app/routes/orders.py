@@ -142,16 +142,16 @@ async def get_all_orders(skip: int = 0, limit: int = 1000, db: Session = Depends
     orders = CRUDOrder().get_all_orders(db=db, skip=skip, limit=limit)
     return [
         {
-              "id": order.id,
-                "phone": order.phone or "N/A",
-                "email": order.email or "N/A",
-                "address": order.address or "N/A",
-                "producto": json.loads(order.producto) if order.producto else [], 
-                "cantidad_cajas": order.cantidad_cajas,
-                "nombre": order.nombre,
-                "apellido": order.apellido,
-                "ad_id": order.ad_id,
-
+            "id": order["id"],  
+            "phone": order["phone"] or "N/A",
+            "email": order["email"] or "N/A",
+            "address": order["address"] or "N/A",
+            "ciudad": order["ciudad"] or "N/A",
+            "producto": json.loads(order["producto"]) if order["producto"] else [],
+            "cantidad_cajas": order["cantidad_cajas"] or 0,
+            "nombre": order["nombre"] or "N/A",
+            "apellido": order["apellido"] or "N/A",
+            "ad_id": order["ad_id"] or "N/A",
         }
         for order in orders
     ]

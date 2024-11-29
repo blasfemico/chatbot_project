@@ -289,7 +289,6 @@ class CRUDOrder:
 
     def get_all_orders(self, db: Session, skip: int = 0, limit: int = 10):
         logging.info(f"Obteniendo todas las órdenes. Saltar: {skip}, Límite: {limit}")
-        
         try:
             orders_query = db.execute(
                 select(
@@ -299,33 +298,17 @@ class CRUDOrder:
                     Order.address,
                     Order.producto,
                     Order.cantidad_cajas,
-                    Order.ciudad,  
+                    Order.ciudad,
                     Order.nombre,
                     Order.apellido,
                     Order.ad_id
                 ).offset(skip).limit(limit)
             )
-            orders = orders_query.fetchall()
-            result = []
-            for order in orders:
-                result.append({
-                    "id": order.id,
-                    "phone": order.phone or "N/A",
-                    "email": order.email or "N/A",
-                    "address": order.address or "N/A",
-                    "ciudad": order.ciudad or "N/A", 
-                    "productos": json.loads(order.producto) if order.producto else [],  
-                    "cantidad_cajas": order.cantidad_cajas or 0,
-                    "nombre": order.nombre or "N/A",
-                    "apellido": order.apellido or "N/A",
-                    "ad_id": order.ad_id or "N/A"
-                })
-
-            return result
+            # Convierte el resultado en una lista de diccionarios
+            return [dict(order) for order in orders_query.fetchall()]
         except Exception as e:
             logging.error(f"Error al obtener las órdenes: {str(e)}")
             raise HTTPException(status_code=500, detail="Error al obtener las órdenes.")
-
 
 
 
