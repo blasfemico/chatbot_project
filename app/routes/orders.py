@@ -28,6 +28,19 @@ class OrderService:
     @staticmethod
     async def create_order(order_data: schemas.OrderCreate, db: Session, nombre: str = "N/A", apellido: str = "N/A") -> dict:
         try:
+            # Validar y transformar producto
+            if isinstance(order_data.producto, str):
+                # Convertir string en una lista con un solo producto
+                order_data.producto = [{"producto": order_data.producto, "cantidad": 1}]
+            
+            if not isinstance(order_data.producto, list):
+                raise ValueError("El campo 'producto' debe ser una lista.")
+
+            for prod in order_data.producto:
+                if not isinstance(prod, dict) or "producto" not in prod or "cantidad" not in prod:
+                    raise ValueError("Cada elemento en 'producto' debe contener 'producto' y 'cantidad'.")
+
+            # Crear la orden
             crud_order = CRUDOrder()
             new_order = crud_order.create_order(db=db, order=order_data, nombre=nombre, apellido=apellido)
             delivery_message = CRUDOrder.get_delivery_day_message()
@@ -35,8 +48,11 @@ class OrderService:
                 "message": f"Gracias por su pedido. {delivery_message}",
                 "order": new_order
             }
+        except ValueError as ve:
+            logging.error(f"Error en el campo 'producto': {ve}")
+            raise HTTPException(status_code=400, detail=str(ve))
         except Exception as e:
-            logging.error(f"Error al crear la orden: {str(e)}")
+            logging.error(f"Error al crear la orden: {e}")
             raise HTTPException(status_code=500, detail="Error al crear el pedido.")
 
 

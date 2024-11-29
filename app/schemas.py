@@ -58,7 +58,7 @@ class OrderCreate(BaseModel):
     phone: str
     email: Optional[str] = "N/A"
     address: Optional[str] = "N/A"
-    ciudad: Optional[str] = None  
+    ciudad: Optional[str] = "N/A"
     producto: List[dict] 
     cantidad_cajas: Optional[int] = 1
     nombre: Optional[str] = None
