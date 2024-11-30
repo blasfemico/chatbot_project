@@ -11,6 +11,7 @@ from app.models import (
 from app.crud import CRUDProduct, FAQCreate, CRUDFaq, CRUDCiudad, CRUDOrder
 from app.schemas import Cuenta as CuentaSchema
 from app.schemas import FAQSchema, FAQUpdate, APIKeyCreate, ProductInput
+from app import schemas
 from app.config import settings
 from openai import OpenAI
 import json
@@ -549,20 +550,18 @@ class ChatbotService:
             logging.error(f"Error al serializar productos: {e}")
             return {"respuesta": "Hubo un problema al procesar los productos. Inténtelo de nuevo más tarde."}
 
-        # Crear datos para la orden
-        order_data = {
-            "phone": telefono,
-            "email": None,
-            "address": None,
-            "producto": productos_serializados,
-            "cantidad_cajas": len(productos),
-            "ciudad": context.get("ciudad", "N/A"),
-            "ad_id": context.get("ad_id", "N/A"),
-            "nombre": nombre,
-            "apellido": apellido,
-        }
-
         try:
+            # Convertir order_data a una instancia de schemas.OrderCreate
+            order_data = schemas.OrderCreate(
+                phone=telefono,
+                email=None,
+                address=None,
+                producto=productos_serializados,
+                cantidad_cajas=len(productos),
+                ciudad=context.get("ciudad", "N/A"),
+                ad_id=context.get("ad_id", "N/A"),
+            )
+
             crud_order = CRUDOrder()
             new_order = crud_order.create_order(db=db, order=order_data, nombre=nombre, apellido=apellido)
             logging.info(f"Orden creada con éxito: {new_order}")
