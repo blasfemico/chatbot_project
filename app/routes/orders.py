@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from app import schemas
+from app.schemas import ProductInput
 from app.crud import CRUDOrder
 from app.database import get_db
 from typing import List, Dict
@@ -34,27 +35,29 @@ class OrderService:
             raise ValueError(f"Error al procesar la entrada de productos: {e}")
         return productos
 
-
-
-   
     @staticmethod
-    def get_safe_file_path(directory: str, filename: str = "ordenes_exportadas.xlsx") -> str:
-        filename = re.sub(r'[^a-zA-Z0-9_\-\.]', '', filename)
-        filename = filename if filename.endswith(".xlsx") else f"{filename}.xlsx"
-        file_path = os.path.join(directory, filename)
-        
-        return file_path
-   
+    def serialize_products(productos: List[ProductInput]) -> str:
+        """Convierte una lista de productos a JSON."""
+        return json.dumps([p.dict() for p in productos])
+
+    @staticmethod
+    def deserialize_products(productos_str: str) -> List[ProductInput]:
+        """Convierte un JSON de productos a una lista de ProductInput."""
+        try:
+            productos = json.loads(productos_str)
+            return [ProductInput(**p) for p in productos]
+        except Exception as e:
+            raise ValueError(f"Error al deserializar productos: {e}")
+
     @staticmethod
     async def create_order(order_data: schemas.OrderCreate, db: Session, nombre: str = "N/A", apellido: str = "N/A") -> dict:
         try:
             if isinstance(order_data.producto, list):
-
-                order_data.producto = json.dumps([p.dict() for p in order_data.producto])
+                order_data.producto = OrderService.serialize_products(order_data.producto)
 
             crud_order = CRUDOrder()
             new_order = crud_order.create_order(db=db, order=order_data, nombre=nombre, apellido=apellido)
-
+            
             return {
                 "message": "Orden creada exitosamente.",
                 "order": new_order
@@ -66,7 +69,15 @@ class OrderService:
             logging.error(f"Error al crear la orden: {e}")
             raise HTTPException(status_code=500, detail="Error al crear el pedido.")
 
+
+   
+    @staticmethod
+    def get_safe_file_path(directory: str, filename: str = "ordenes_exportadas.xlsx") -> str:
+        filename = re.sub(r'[^a-zA-Z0-9_\-\.]', '', filename)
+        filename = filename if filename.endswith(".xlsx") else f"{filename}.xlsx"
+        file_path = os.path.join(directory, filename)
         
+        return file_path        
     @staticmethod
     async def update_order(order_id: int, order_data: schemas.OrderUpdate, db: Session) -> dict:
         try:

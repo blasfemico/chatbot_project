@@ -62,7 +62,7 @@ class OrderCreate(BaseModel):
     email: Optional[str] = "N/A"
     address: Optional[str] = "N/A"
     ciudad: Optional[str] = "N/A"
-    producto: Union[List[ProductInput], List[dict]]  
+    producto: List[ProductInput] 
     cantidad_cajas: Optional[int] = 1
     nombre: Optional[str] = None
     apellido: Optional[str] = None

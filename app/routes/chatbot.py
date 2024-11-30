@@ -536,54 +536,41 @@ class ChatbotService:
         if not context or not context.get("productos"):
             return {"respuesta": "No hay productos en tu orden. Por favor, agrega productos antes de confirmar."}
 
-        logging.info(f"Creando orden con el contexto: {context}")
-        
         telefono = context.get("telefono")
         if not telefono:
             return {"respuesta": "Por favor, proporcione su número de teléfono para completar la orden."}
 
         nombre = context.get("nombre", "Cliente")
         apellido = context.get("apellido", "Apellido")
-        productos_context = context["productos"]
-        productos_formateados = []
-        cantidades = []
-
-        for producto in productos_context:
-            productos_formateados.append(f"{producto['cantidad']} cajas de {producto['producto']}")
-            cantidades.append(producto['cantidad'])
-
-        productos_concatenados = ", ".join(productos_formateados)
-        cantidades_concatenadas = ", ".join(map(str, cantidades))
+        productos = context["productos"]
 
         order_data = schemas.OrderCreate(
             phone=telefono,
             email=None,
             address=None,
-            producto=productos_concatenados, 
-            cantidad_cajas=cantidades_concatenadas, 
+            producto=productos,  
+            cantidad_cajas=len(productos),  
             ciudad=context.get("ciudad", "N/A"),
             ad_id=context.get("ad_id", "N/A"),
         )
 
         try:
             result = await OrderService.create_order(order_data, db, nombre, apellido)
-            logging.info(f"Orden creada con éxito: {result}")
             del ChatbotService.user_contexts[sender_id][cuenta_id]
 
             return {
                 "respuesta": (
-                    f"✅ Su pedido ya quedó registrado:\n\n"
-                    f"📦 Productos: {productos_concatenados}\n"
+                    f"✅ Su pedido ya quedó registrado:\n"
+                    f"📦 Productos: {len(productos)} artículos\n"
                     f"📞 Teléfono: {telefono}\n"
                     f"📍 Ciudad: {context.get('ciudad', 'No especificada')}\n\n"
-                    f"El repartidor se comunicará contigo entre 8 AM y 9 PM para confirmar la entrega. ¡Gracias por tu compra! 😊"
+                    "El repartidor se comunicará contigo entre 8 AM y 9 PM para confirmar la entrega. ¡Gracias por tu compra! 😊"
                 )
             }
         except Exception as e:
-            logging.error(f"Error al crear la orden: {e}")
-            return {"respuesta": f"❌ Hubo un problema al registrar tu orden. Por favor, intenta nuevamente. Detalles: {e}"}
+            return {"respuesta": f"❌ Error al registrar tu orden. Detalles: {e}"}
 
-                
+                    
     @staticmethod
     def extract_phone_number(text: str):
         phone_match = re.search(r"\+?\d{10,15}", text)

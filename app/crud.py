@@ -21,6 +21,7 @@ from app.schemas import (
 )
 from datetime import datetime
 from app import schemas
+from app.routes.orders import OrderService
 import json
 from sentence_transformers import SentenceTransformer
 import logging
@@ -192,19 +193,19 @@ class CRUDOrder:
     
     def create_order(self, db: Session, order: schemas.OrderCreate, nombre: str, apellido: str):
         try:
-            if not isinstance(order.producto, list):
-                raise ValueError("El campo 'producto' debe ser una lista de productos.")
+            if not isinstance(order.producto, str):
+                raise ValueError("El campo 'producto' debe estar serializado como JSON.")
+            productos_serializados = order.producto
 
-            productos_serializados = json.dumps(order.producto)  # Serializar productos
             ciudad = CRUDCiudad.get_city_by_phone_prefix(db, order.phone[:3]) or "N/A"
 
             new_order = Order(
                 phone=order.phone,
                 email=order.email or "N/A",
                 address=order.address or "N/A",
-                producto=productos_serializados,  # Guardar como JSON
+                producto=productos_serializados,  
                 ciudad=ciudad,
-                cantidad_cajas=", ".join([str(p["cantidad"]) for p in order.producto]),
+                cantidad_cajas=", ".join([str(p["cantidad"]) for p in json.loads(productos_serializados)]),
                 nombre=nombre,
                 apellido=apellido,
                 ad_id=order.ad_id or "N/A",
@@ -212,35 +213,12 @@ class CRUDOrder:
             db.add(new_order)
             db.commit()
             db.refresh(new_order)
+
             return schemas.OrderResponse.from_orm(new_order)
         except Exception as e:
             db.rollback()
             logging.error(f"Error al crear la orden: {e}")
             raise HTTPException(status_code=500, detail="Error al crear la orden.")
-
-
-    def update_order(self, db: Session, order_id: int, order_data: schemas.OrderUpdate):
-        try:
-            logging.info(f"Actualizando la orden con ID {order_id}.")
-            order = db.query(Order).filter(Order.id == order_id).first()
-            if order:
-                if order_data.phone:
-                    order.phone = order_data.phone
-                if order_data.email:
-                    order.email = order_data.email
-                if order_data.address:
-                    order.address = order_data.address
-                db.commit()
-                db.refresh(order)
-                logging.info(f"Orden actualizada exitosamente: ID {order.id}")
-                return order
-            else:
-                logging.warning(f"No se encontró la orden con ID {order_id}.")
-                raise HTTPException(status_code=404, detail="Orden no encontrada")
-        except Exception as e:
-            logging.error(f"Error al actualizar la orden: {str(e)}")
-            db.rollback()
-            raise HTTPException(status_code=500, detail="Error al actualizar la orden.")
 
     def delete_order(self, db: Session, order_id: int):
         try:
@@ -264,22 +242,26 @@ class CRUDOrder:
             order = db.query(Order).filter(Order.id == order_id).first()
             if not order:
                 raise HTTPException(status_code=404, detail="Orden no encontrada.")
+
             order_data = {
                 "id": order.id,
-                "phone": order.phone,
-                "email": order.email,
-                "address": order.address,
-                "ciudad": order.ciudad,
-                "productos": json.loads(order.producto),  
-                "nombre": order.nombre,
-                "apellido": order.apellido,
-                "ad_id": order.ad_id,
+                "phone": order.phone or "N/A",
+                "email": order.email or "N/A",
+                "address": order.address or "N/A",
+                "ciudad": order.ciudad or "N/A",
+                "producto": OrderService.deserialize_products(order.producto),
+                "cantidad_cajas": order.cantidad_cajas or "0",
+                "nombre": order.nombre or "N/A",
+                "apellido": order.apellido or "N/A",
+                "ad_id": order.ad_id or "N/A",
             }
+
             return order_data
 
         except Exception as e:
-            logging.error(f"Error al obtener la orden: {str(e)}")
+            logging.error(f"Error al obtener la orden con ID {order_id}: {str(e)}")
             raise HTTPException(status_code=500, detail="Error al obtener la orden.")
+
 
 
     def get_all_orders(self, db: Session, skip: int = 0, limit: int = 10):
@@ -299,14 +281,15 @@ class CRUDOrder:
                     Order.ad_id
                 ).offset(skip).limit(limit)
             )
-            # Convierte a lista de diccionarios y deserializa producto
+
             orders = []
             for order in orders_query.fetchall():
                 try:
-                    producto = json.loads(order["producto"]) if order["producto"] else []
+                    producto = OrderService.deserialize_products(order["producto"]) if order["producto"] else []
                 except json.JSONDecodeError:
                     logging.error(f"Error al deserializar producto: {order['producto']}")
                     producto = []
+
                 orders.append({
                     "id": order["id"],
                     "phone": order["phone"] or "N/A",
@@ -314,15 +297,18 @@ class CRUDOrder:
                     "address": order["address"] or "N/A",
                     "ciudad": order["ciudad"] or "N/A",
                     "producto": producto,
-                    "cantidad_cajas": order["cantidad_cajas"] or 0,
+                    "cantidad_cajas": order["cantidad_cajas"] or "0",
                     "nombre": order["nombre"] or "N/A",
                     "apellido": order["apellido"] or "N/A",
                     "ad_id": order["ad_id"] or "N/A",
                 })
+
             return orders
+
         except Exception as e:
             logging.error(f"Error al obtener las órdenes: {str(e)}")
             raise HTTPException(status_code=500, detail="Error al obtener las órdenes.")
+
 
 
 class CRUDCuenta:
