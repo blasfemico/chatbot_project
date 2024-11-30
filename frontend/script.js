@@ -383,29 +383,23 @@ async function fetchOrders() {
         const orders = await response.json();
 
         document.getElementById("orders-list").innerHTML = orders.map(order => {
-            let productos = [];
-            try {
-                productos = Array.isArray(order.producto) ? order.producto : JSON.parse(order.producto);
-            } catch (e) {
-                console.error("Error al parsear 'producto' en la orden:", e);
-                productos = [];
-            }
-
-            const productosString = productos.map(p => `${p.cantidad} de ${p.producto}`).join(", ");
+            let productos = Array.isArray(order.producto) ? order.producto : [];
+            const productosString = productos.map(p => `${p.cantidad} de ${p.producto}`).join("<br>");
 
             return `
-                <p>
-                    Orden ID: ${order.id} - 
-                    Productos: ${productosString || "Sin productos"}, 
-                    Cantidad Total: ${order.cantidad_cajas || "N/A"}, 
-                    Teléfono: ${order.phone || "N/A"}, 
-                    Email: ${order.email || "N/A"}, 
-                    Dirección: ${order.address || "N/A"}, 
-                    Nombre: ${order.nombre || "N/A"}, 
-                    Apellido: ${order.apellido || "N/A"}, 
-                    Ad ID: ${order.ad_id || "N/A"}
+                <div>
+                    <p><strong>Orden ID:</strong> ${order.id}</p>
+                    <p><strong>Productos:</strong><br>${productosString || "Sin productos"}</p>
+                    <p><strong>Cantidad Total:</strong> ${order.cantidad_cajas || "N/A"}</p>
+                    <p><strong>Teléfono:</strong> ${order.phone || "N/A"}</p>
+                    <p><strong>Email:</strong> ${order.email || "N/A"}</p>
+                    <p><strong>Dirección:</strong> ${order.address || "N/A"}</p>
+                    <p><strong>Nombre:</strong> ${order.nombre || "N/A"}</p>
+                    <p><strong>Apellido:</strong> ${order.apellido || "N/A"}</p>
+                    <p><strong>Ad ID:</strong> ${order.ad_id || "N/A"}</p>
                     <button onclick="deleteOrder(${order.id})">Eliminar</button>
-                </p>
+                </div>
+                <hr>
             `;
         }).join("");
     } catch (error) {
@@ -413,7 +407,6 @@ async function fetchOrders() {
         document.getElementById("orders-list").innerHTML = "<p>Error al cargar órdenes.</p>";
     }
 }
-
 
 async function fetchOrderById() {
     const orderId = document.getElementById("orderId").value;
@@ -430,16 +423,20 @@ async function fetchOrderById() {
         }
 
         const order = await response.json();
+        let productos = Array.isArray(order.producto) ? order.producto : [];
+        const productosString = productos.map(p => `<li>${p.cantidad} de ${p.producto}</li>`).join("");
+
         document.getElementById("single-order").innerHTML = `
             <h3>Detalles de la Orden ID: ${order.id}</h3>
-            <p>Producto: ${order.producto}</p>
-            <p>Cantidad: ${order.cantidad_cajas}</p>
-            <p>Teléfono: ${order.phone || "N/A"}</p>
-            <p>Email: ${order.email || "N/A"}</p>
-            <p>Dirección: ${order.address || "N/A"}</p>
-            <p>Nombre: ${order.nombre || "N/A"}</p>
-            <p>Apellido: ${order.apellido || "N/A"}</p>
-            <p>Ad ID: ${order.ad_id || "N/A"}</p>
+            <p><strong>Productos:</strong></p>
+            <ul>${productosString || "<li>Sin productos</li>"}</ul>
+            <p><strong>Cantidad Total:</strong> ${order.cantidad_cajas}</p>
+            <p><strong>Teléfono:</strong> ${order.phone || "N/A"}</p>
+            <p><strong>Email:</strong> ${order.email || "N/A"}</p>
+            <p><strong>Dirección:</strong> ${order.address || "N/A"}</p>
+            <p><strong>Nombre:</strong> ${order.nombre || "N/A"}</p>
+            <p><strong>Apellido:</strong> ${order.apellido || "N/A"}</p>
+            <p><strong>Ad ID:</strong> ${order.ad_id || "N/A"}</p>
             <button onclick="deleteOrder(${order.id})">Eliminar esta Orden</button>
         `;
     } catch (error) {
@@ -447,6 +444,7 @@ async function fetchOrderById() {
         document.getElementById("single-order").innerHTML = "<p>Error al cargar la orden.</p>";
     }
 }
+
 
 async function deleteOrder(orderId) {
     await fetch(`${backendUrl}orders/${orderId}`, { method: 'DELETE' });

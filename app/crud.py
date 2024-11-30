@@ -181,7 +181,7 @@ class CRUDCuentaProducto:
         if not productos:
             raise HTTPException(status_code=404, detail="No se encontraron productos para esta cuenta.")
         
-        # Devuelve una lista de diccionarios con id, producto y precio
+
         return [{"id": p.id, "producto": p.producto, "precio": p.precio} for p in productos]
 
 class CRUDOrder:
@@ -198,15 +198,14 @@ class CRUDOrder:
                 raise HTTPException(status_code=400, detail="El campo 'phone' es obligatorio.")
             if not order.producto or len(order.producto) == 0:
                 raise HTTPException(status_code=400, detail="Debe incluir al menos un producto.")
-            
-            producto_json = json.dumps(order.producto)
 
             ciudad = CRUDCiudad.get_city_by_phone_prefix(db, order.phone[:3]) or "N/A"
             new_order = Order(
                 phone=order.phone,
                 email=order.email or "N/A",
                 address=order.address or "N/A",
-                producto=producto_json, 
+                cantidad_cajas=", ".join([str(p["cantidad"]) for p in order.producto]),
+                producto=order.producto, 
                 ciudad=ciudad,
                 nombre=nombre,
                 apellido=apellido,

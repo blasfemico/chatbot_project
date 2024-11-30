@@ -131,12 +131,13 @@ class OrderService:
         sheet.append(headers)
         orders = CRUDOrder().get_all_orders(db)
         for order in orders:
+            productos = json.dumps(order.producto)
             sheet.append([
                 order["id"],
                 order["phone"] or "N/A",
                 order["email"] or "N/A",
                 order["address"] or "N/A",
-                order["producto"],
+                productos,
                 order["cantidad_cajas"],
                 order.get("ad_id", "N/A"),
                 order.get("nombre", "N/A"), 
@@ -189,7 +190,7 @@ async def get_all_orders(skip: int = 0, limit: int = 1000, db: Session = Depends
             "address": order["address"] or "N/A",
             "ciudad": order["ciudad"] or "N/A",
             "producto": json.loads(order["producto"]) if order["producto"] else [],
-            "cantidad_cajas": order["cantidad_cajas"] or 0,
+            "cantidad_cajas": order["cantidad_cajas"] or 1,
             "nombre": order["nombre"] or "N/A",
             "apellido": order["apellido"] or "N/A",
             "ad_id": order["ad_id"] or "N/A",

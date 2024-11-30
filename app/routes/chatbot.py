@@ -532,68 +532,58 @@ class ChatbotService:
 
     @staticmethod
     async def create_order_from_context(sender_id: str, cuenta_id: int, db: Session) -> dict:
-        """
-        Crea la orden utilizando el contexto actual y asegura que los productos tengan el formato correcto.
-        """
         context = ChatbotService.user_contexts.get(sender_id, {}).get(cuenta_id)
         if not context or not context.get("productos"):
             return {"respuesta": "No hay productos en tu orden. Por favor, agrega productos antes de confirmar."}
 
         logging.info(f"Creando orden con el contexto: {context}")
+        
         telefono = context.get("telefono")
-        if telefono and not context.get("ciudad"):
-            location_code = telefono[:3]
-            ciudad = CRUDCiudad.get_city_by_phone_prefix(db, location_code)
-            if ciudad:
-                context["ciudad"] = ciudad
-            else:
-                context["ciudad"] = "N/A"
+        if not telefono:
+            return {"respuesta": "Por favor, proporcione su número de teléfono para completar la orden."}
 
         nombre = context.get("nombre", "Cliente")
         apellido = context.get("apellido", "Apellido")
-        productos = context["productos"]
+        productos_context = context["productos"]
+        productos_formateados = []
+        cantidades = []
 
-        responses = []
+        for producto in productos_context:
+            productos_formateados.append(f"{producto['cantidad']} cajas de {producto['producto']}")
+            cantidades.append(producto['cantidad'])
 
-        for producto in productos:
-            try:
-                producto_formateado = [
-                    {"producto": producto.get("producto"), "cantidad": producto.get("cantidad", 1)}
-                ]
-                
-                order_data = schemas.OrderCreate(
-                    phone=telefono,
-                    email=None,
-                    address=None,
-                    producto=producto_formateado,  
-                    cantidad_cajas=producto.get("cantidad", 1),
-                    ciudad=context["ciudad"],
-                    ad_id=context.get("ad_id", "N/A"),
-                )
+        productos_concatenados = ", ".join(productos_formateados)
+        cantidades_concatenadas = ", ".join(map(str, cantidades))
 
-                logging.info(f"Llamando a create_order con: order_data={order_data}, nombre={nombre}, apellido={apellido}")
-                result = await OrderService.create_order(order_data, db, nombre, apellido)
-                logging.info(f"Resultado de creación de la orden: {result}")
-                responses.append(f"✅ Pedido de {producto.get('cantidad', 1)} cajas de {producto.get('producto')} registrado con éxito.")
-            except HTTPException as e:
-                logging.error(f"Error HTTP al crear la orden para {producto.get('producto')}: {str(e)}")
-                responses.append(f"❌ Error al registrar el pedido de {producto.get('producto')}: {str(e)}.")
-            except Exception as e:
-                logging.error(f"Error inesperado al crear la orden para {producto.get('producto')}: {str(e)}")
-                responses.append(f"❌ Error técnico al registrar el pedido de {producto.get('producto')}: {str(e)}.")
-
-        response_text = (
-            f"✅ Su pedido ya quedó programado!\n\n"
-            f"El repartidor sale de 8 AM a 9 PM él le marca y le manda un Whatsapp para confirmar la entrega 🛵\n\n"
-            f"📞Recuerde estar al pendiente del teléfono, porque si usted no contesta, el repartidor no se presenta. "
-            f"En caso de que usted no pueda, reagendamos la entrega sin ningún problema.\n\n"
-            f"Cualquier otra duda aquí estoy para servirle 🤗"
+        order_data = schemas.OrderCreate(
+            phone=telefono,
+            email=None,
+            address=None,
+            producto=productos_concatenados, 
+            cantidad_cajas=cantidades_concatenadas, 
+            ciudad=context.get("ciudad", "N/A"),
+            ad_id=context.get("ad_id", "N/A"),
         )
-        del ChatbotService.user_contexts[sender_id]
 
-        return {"respuesta": response_text + "\n\n" + "\n".join(responses)}
+        try:
+            result = await OrderService.create_order(order_data, db, nombre, apellido)
+            logging.info(f"Orden creada con éxito: {result}")
+            del ChatbotService.user_contexts[sender_id][cuenta_id]
 
-            
+            return {
+                "respuesta": (
+                    f"✅ Su pedido ya quedó registrado:\n\n"
+                    f"📦 Productos: {productos_concatenados}\n"
+                    f"📞 Teléfono: {telefono}\n"
+                    f"📍 Ciudad: {context.get('ciudad', 'No especificada')}\n\n"
+                    f"El repartidor se comunicará contigo entre 8 AM y 9 PM para confirmar la entrega. ¡Gracias por tu compra! 😊"
+                )
+            }
+        except Exception as e:
+            logging.error(f"Error al crear la orden: {e}")
+            return {"respuesta": f"❌ Hubo un problema al registrar tu orden. Por favor, intenta nuevamente. Detalles: {e}"}
+
+                
     @staticmethod
     def extract_phone_number(text: str):
         phone_match = re.search(r"\+?\d{10,15}", text)

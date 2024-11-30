@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime, JSON
 from sqlalchemy.orm import relationship
 from app.database import Base
 from datetime import datetime
@@ -18,9 +18,9 @@ class Order(Base):
     phone = Column(String, nullable=False)
     email = Column(String, default="N/A")
     address = Column(String, default="N/A")
-    producto = Column(String, nullable=False)
+    producto = Column(JSON, nullable=False)
     ciudad = Column(String, default="N/A")  
-    cantidad_cajas = Column(Integer, default=1)
+    cantidad_cajas = Column(String, default=1)
     ad_id = Column(String, nullable=True)
     nombre = Column(String, default="N/A")  
     apellido = Column(String, default="N/A")  
