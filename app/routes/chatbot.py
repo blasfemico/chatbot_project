@@ -10,7 +10,7 @@ from app.models import (
 )
 from app.crud import CRUDProduct, FAQCreate, CRUDFaq, CRUDCiudad, CRUDOrder
 from app.schemas import Cuenta as CuentaSchema
-from app.schemas import FAQSchema, FAQUpdate, APIKeyCreate
+from app.schemas import FAQSchema, FAQUpdate, APIKeyCreate, ProductInput
 from app.config import settings
 from openai import OpenAI
 import json
@@ -539,9 +539,12 @@ class ChatbotService:
         apellido = context.get("apellido", "Apellido")
         productos = context["productos"]
 
-        # Serialización de productos
         try:
-            productos_serializados = CRUDOrder.serialize_products(productos)
+            # Convertir productos en instancias de ProductInput
+            productos_objetos = [ProductInput(**p) for p in productos]
+
+            # Serializar productos
+            productos_serializados = CRUDOrder.serialize_products(productos_objetos)
         except ValueError as e:
             logging.error(f"Error al serializar productos: {e}")
             return {"respuesta": "Hubo un problema al procesar los productos. Inténtelo de nuevo más tarde."}
@@ -549,8 +552,8 @@ class ChatbotService:
         # Crear datos para la orden
         order_data = {
             "phone": telefono,
-            "email": None,  # Opcional
-            "address": None,  # Opcional
+            "email": None,
+            "address": None,
             "producto": productos_serializados,
             "cantidad_cajas": len(productos),
             "ciudad": context.get("ciudad", "N/A"),
@@ -583,8 +586,7 @@ class ChatbotService:
             logging.error(f"Error al registrar la orden: {e}")
             return {"respuesta": "❌ Ocurrió un error al procesar tu solicitud. Inténtalo más tarde."}
 
-
-                    
+                        
     @staticmethod
     def extract_phone_number(text: str):
         phone_match = re.search(r"\+?\d{10,15}", text)
