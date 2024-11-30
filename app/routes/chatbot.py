@@ -7,6 +7,7 @@ from app.models import (
     CuentaProducto,
     Producto,
     ProductoCiudad,
+    Ciudad
 )
 from app.crud import CRUDProduct, FAQCreate, CRUDFaq, CRUDCiudad
 from app.schemas import Cuenta as CuentaSchema
@@ -296,6 +297,31 @@ class ChatbotService:
 
 
     @staticmethod
+    def extract_address_from_text(input_text: str) -> str:
+        """
+        Extrae una dirección desde el texto proporcionado. 
+        Intenta encontrar un patrón común de dirección (número, calle, etc.)
+        """
+        pattern = r"([a-zA-Z0-9\s]+(?:\s\d{1,5}[a-zA-Z]?\s?))"
+        match = re.search(pattern, input_text)
+        if match:
+            return match.group(0).strip()
+        return None
+    
+    def extract_city_from_text(input_text: str, db: Session) -> str:
+        """
+        Extrae el nombre de la ciudad del texto proporcionado.
+        Utiliza el CRUD de Ciudad para hacer una búsqueda exacta o parcial en la base de datos.
+        """
+        input_text = input_text.lower().strip()
+        ciudades = db.query(Ciudad.nombre).all()
+        ciudades = [ciudad[0].lower() for ciudad in ciudades]
+        for ciudad in ciudades:
+            if ciudad in input_text:
+                return ciudad.title()
+        return None
+    
+    @staticmethod
     async def ask_question(
         question: str, sender_id: str, cuenta_id: int, db: Session, hacer_order=False
     ) -> dict:
@@ -371,6 +397,7 @@ class ChatbotService:
                 producto = producto_info.get("producto")
                 cantidad = producto_info.get("cantidad", 1)
                 ChatbotService.update_context(sender_id, cuenta_id, producto, cantidad)
+
         if hacer_order:
             context["orden_flujo_aislado"] = True
             response_text = (
@@ -382,6 +409,30 @@ class ChatbotService:
             )
             logging.info(response_text)
             return {"respuesta": response_text}
+
+        if context["orden_flujo_aislado"]:
+            ciudad = ChatbotService.extract_city_from_text(sanitized_question, db)
+            if ciudad:
+                context["ciudad"] = ciudad
+                logging.info(f"Ciudad detectada: {ciudad}")
+            else:
+                cancel_text = "La ciudad que proporcionaste no está disponible para la venta de productos. Lamentablemente, no podemos procesar tu orden."
+                logging.info(cancel_text)
+                del ChatbotService.user_contexts[sender_id][cuenta_id]
+                return {"respuesta": cancel_text}
+
+            direccion = ChatbotService.extract_address_from_text(sanitized_question)
+            if direccion:
+                context["direccion"] = direccion
+                logging.info(f"Dirección detectada: {direccion}")
+
+            telefono = ChatbotService.extract_phone_number(sanitized_question)
+            if telefono:
+                context["telefono"] = telefono
+                logging.info(f"Teléfono detectado: {telefono}")
+
+            if context.get("telefono") and context.get("direccion") and context.get("ciudad") and context.get("productos"):
+                await ChatbotService.create_order_from_context(sender_id, cuenta_id, db, context)
 
         if context.get("orden_flujo_aislado"):
             datos_faltantes = []
@@ -406,15 +457,24 @@ class ChatbotService:
                     )
                     logging.info(reminder_text)
                     return {"respuesta": reminder_text}
+
+                if context.get("telefono"):
+                        await ChatbotService.create_order_from_context(sender_id, cuenta_id, db, context)
+                
+
                 await asyncio.sleep(60)
                 if not context.get("telefono"):
                     cancel_text = (
-                        "Lamentablemente, hemos cancelado la orden debido a la falta de información. "
+                        "Lamentablemente, hemos cancelado la orden debido a la falta de número de teléfono. "
                         "Si deseas hacer un pedido, por favor inicia el proceso nuevamente."
                     )
                     logging.info(cancel_text)
                     del ChatbotService.user_contexts[sender_id][cuenta_id]
                     return {"respuesta": cancel_text}
+
+        # Si todos los datos están presentes
+        await ChatbotService.create_order_from_context(sender_id, cuenta_id, db, context)
+
 
         logging.info(f"Contexto actualizado para sender_id {sender_id}: {context}")
         ciudades_disponibles = CRUDCiudad.get_all_cities(db)
