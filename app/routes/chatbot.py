@@ -8,8 +8,7 @@ from app.models import (
     Producto,
     ProductoCiudad,
 )
-from app.crud import CRUDProduct, FAQCreate, CRUDFaq, CRUDCiudad
-from app.routes.orders import OrderService
+from app.crud import CRUDProduct, FAQCreate, CRUDFaq, CRUDCiudad, CRUDOrder
 from app.schemas import Cuenta as CuentaSchema
 from app.schemas import FAQSchema, FAQUpdate, APIKeyCreate
 from app.config import settings
@@ -22,7 +21,6 @@ from sentence_transformers import SentenceTransformer, util
 from datetime import date
 import re
 from json import JSONDecodeError
-from app import schemas
 import logging
 from cachetools import TTLCache
 import re 
@@ -347,7 +345,7 @@ class ChatbotService:
                 return {"respuesta": "Por favor, proporcione su número de teléfono para completar la orden."}
             if not context.get("nombre") or not context.get("apellido"):  
                 return {"respuesta": "Por favor, proporcione su nombre y apellido para completar la orden."}
-            return await ChatbotService.create_order_from_context(sender_id, cuenta_id, db)
+            return await ChatbotService.create_order_from_context(sender_id, cuenta_id, db, context)
 
         logging.info(f"Contexto actualizado para sender_id {sender_id}: {context}")
 
@@ -528,7 +526,8 @@ class ChatbotService:
         return productos
 
 
-    async def create_order_from_context(self, sender_id: str, cuenta_id: int, db: Session, context: dict):
+    @staticmethod
+    async def create_order_from_context(sender_id: str, cuenta_id: int, db: Session, context: dict):
         if not context or not context.get("productos"):
             return {"respuesta": "No hay productos en tu orden. Por favor, agrega productos antes de confirmar."}
 
@@ -540,20 +539,34 @@ class ChatbotService:
         apellido = context.get("apellido", "Apellido")
         productos = context["productos"]
 
-        order_data = OrderService.OrderCreate(
-            phone=telefono,
-            email=None,
-            address=None,
-            producto=productos,  
-            cantidad_cajas=len(productos),  
-            ciudad=context.get("ciudad", "N/A"),
-            ad_id=context.get("ad_id", "N/A"),
-        )
+        # Serialización de productos
+        try:
+            productos_serializados = CRUDOrder.serialize_products(productos)
+        except ValueError as e:
+            logging.error(f"Error al serializar productos: {e}")
+            return {"respuesta": "Hubo un problema al procesar los productos. Inténtelo de nuevo más tarde."}
+
+        # Crear datos para la orden
+        order_data = {
+            "phone": telefono,
+            "email": None,  # Opcional
+            "address": None,  # Opcional
+            "producto": productos_serializados,
+            "cantidad_cajas": len(productos),
+            "ciudad": context.get("ciudad", "N/A"),
+            "ad_id": context.get("ad_id", "N/A"),
+            "nombre": nombre,
+            "apellido": apellido,
+        }
 
         try:
-            result = self.create_order(db, order_data, nombre, apellido)
-            logging.info(f"Orden creada con éxito: {result}")
+            crud_order = CRUDOrder()
+            new_order = crud_order.create_order(db=db, order=order_data, nombre=nombre, apellido=apellido)
+            logging.info(f"Orden creada con éxito: {new_order}")
+
+            # Limpiar el contexto del usuario después de crear la orden
             del ChatbotService.user_contexts[sender_id][cuenta_id]
+
             return {
                 "respuesta": (
                     f"✅ Su pedido ya quedó registrado:\n"
@@ -563,9 +576,12 @@ class ChatbotService:
                     "El repartidor se comunicará contigo entre 8 AM y 9 PM para confirmar la entrega. ¡Gracias por tu compra! 😊"
                 )
             }
+        except HTTPException as http_ex:
+            logging.error(f"Error HTTP al registrar la orden: {http_ex.detail}")
+            return {"respuesta": f"❌ Error al registrar tu orden: {http_ex.detail}"}
         except Exception as e:
-            logging.error(f"Error al registrar la orden desde el contexto: {e}")
-            return {"respuesta": f"❌ Error al registrar tu orden. Detalles: {e}"}
+            logging.error(f"Error al registrar la orden: {e}")
+            return {"respuesta": "❌ Ocurrió un error al procesar tu solicitud. Inténtalo más tarde."}
 
 
                     
