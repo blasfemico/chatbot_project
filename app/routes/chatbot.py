@@ -8,9 +8,10 @@ from app.models import (
     Producto,
     ProductoCiudad,
 )
-from app.crud import CRUDProduct, FAQCreate, CRUDFaq, CRUDCiudad, CRUDOrder
+from app.crud import CRUDProduct, FAQCreate, CRUDFaq, CRUDCiudad
 from app.schemas import Cuenta as CuentaSchema
-from app.schemas import FAQSchema, FAQUpdate, APIKeyCreate, ProductInput
+from app.schemas import FAQSchema, FAQUpdate, APIKeyCreate
+from app.routes.orders import OrderService
 from app import schemas
 from app.config import settings
 from openai import OpenAI
@@ -328,10 +329,19 @@ class ChatbotService:
                 "apellido": None,
                 "ad_id": None,
                 "intencion_detectada": None,
+                "ciudad": None,
             }
         
         context = ChatbotService.user_contexts[sender_id][cuenta_id]
         logging.info(f"Contexto inicial para sender_id {sender_id}, cuenta_id {cuenta_id}: {context}")
+        ciudades_disponibles = CRUDCiudad.get_all_cities(db)
+        ciudades_nombres = [ciudad.nombre.lower() for ciudad in ciudades_disponibles]
+
+        ciudad_detectada = next((ciudad for ciudad in ciudades_nombres if ciudad in sanitized_question), None)
+        if ciudad_detectada:
+            context["ciudad"] = ciudad_detectada.capitalize()
+            logging.info(f"Ciudad detectada: {ciudad_detectada.capitalize()}. Contexto actualizado.")
+
 
         productos = ChatbotService.extract_product_and_quantity(sanitized_question, db)
         if productos:
@@ -374,9 +384,7 @@ class ChatbotService:
                 db=db,               
                 hacer_order=True
             )
-        ciudades_disponibles = CRUDCiudad.get_all_cities(db)
-        ciudades_nombres = [ciudad.nombre.lower() for ciudad in ciudades_disponibles]  
-
+       
         productos_por_ciudad = {}
         for ciudad in ciudades_disponibles:
             productos = (
@@ -515,7 +523,7 @@ class ChatbotService:
         """
         productos = []
         try:
-            items = re.split(r"\s*y\s*", input_text.lower())  # Separar por "y"
+            items = re.split(r"\s*y\s*", input_text.lower()) 
             for item in items:
                 match = re.match(r"(\d+)\s*cajas?\s+de\s+(.+)", item.strip())
                 if match:
@@ -539,83 +547,60 @@ class ChatbotService:
         nombre = context.get("nombre", "Cliente")
         apellido = context.get("apellido", "Apellido")
         productos = context["productos"]
+        cantidad_cajas = sum([p["cantidad"] for p in productos])
+        ciudad = context.get("ciudad", "N/A")  
+
+        order_data = schemas.OrderCreate(
+            phone=telefono,
+            email=None,
+            address=None,
+            producto=productos,
+            cantidad_cajas=cantidad_cajas,
+            ciudad=ciudad,
+            ad_id=context.get("ad_id", "N/A"),
+        )
 
         try:
-            # Convertir productos en instancias de ProductInput
-            productos_objetos = [ProductInput(**p) for p in productos]
-
-            # Serializar productos
-            productos_serializados = CRUDOrder.serialize_products(productos_objetos)
-        except ValueError as e:
-            logging.error(f"Error al serializar productos: {e}")
-            return {"respuesta": "Hubo un problema al procesar los productos. Inténtelo de nuevo más tarde."}
-
-        try:
-            # Convertir order_data a una instancia de schemas.OrderCreate
-            order_data = schemas.OrderCreate(
-                phone=telefono,
-                email=None,
-                address=None,
-                producto=productos_serializados,
-                cantidad_cajas=len(productos),
-                ciudad=context.get("ciudad", "N/A"),
-                ad_id=context.get("ad_id", "N/A"),
-            )
-
-            crud_order = CRUDOrder()
-            new_order = crud_order.create_order(db=db, order=order_data, nombre=nombre, apellido=apellido)
-            logging.info(f"Orden creada con éxito: {new_order}")
-
-            # Limpiar el contexto del usuario después de crear la orden
+            result = await OrderService.create_order(order_data, db, nombre, apellido)
+            logging.info(f"Orden creada con éxito: {result}")
             del ChatbotService.user_contexts[sender_id][cuenta_id]
-
             return {
                 "respuesta": (
                     f"✅ Su pedido ya quedó registrado:\n"
-                    f"📦 Productos: {len(productos)} artículos\n"
+                    f"📦 Productos: {cantidad_cajas} artículos\n"
                     f"📞 Teléfono: {telefono}\n"
-                    f"📍 Ciudad: {context.get('ciudad', 'No especificada')}\n\n"
+                    f"📍 Ciudad: {ciudad}\n\n"
                     "El repartidor se comunicará contigo entre 8 AM y 9 PM para confirmar la entrega. ¡Gracias por tu compra! 😊"
                 )
             }
-        except HTTPException as http_ex:
-            logging.error(f"Error HTTP al registrar la orden: {http_ex.detail}")
-            return {"respuesta": f"❌ Error al registrar tu orden: {http_ex.detail}"}
         except Exception as e:
-            logging.error(f"Error al registrar la orden: {e}")
-            return {"respuesta": "❌ Ocurrió un error al procesar tu solicitud. Inténtalo más tarde."}
+            logging.error(f"Error al registrar la orden desde el contexto: {e}")
+            return {"respuesta": f"❌ Error al registrar tu orden. Detalles: {e}"}
 
-                        
     @staticmethod
     def extract_phone_number(text: str):
         phone_match = re.search(r"\+?\d{10,15}", text)
         phone_number = phone_match.group(0) if phone_match else None
         logging.info(f"Número de teléfono detectado: {phone_number}")
         return phone_number
-
-
-
+    
     @staticmethod
     def extract_product_and_quantity(text: str, db: Session) -> list:
         productos_detectados = []
         productos = db.query(Producto).all()
+
         if not productos:
             logging.warning("No hay productos disponibles en la base de datos. Continuando sin detección de productos.")
             return productos_detectados 
-
-        nombres_productos = [producto.nombre for producto in productos]
-
-
-        cantidad_matches = re.findall(r"(\d+)\s*cajas?\s*de\s*(\w+)", text, re.IGNORECASE)
+        nombres_productos = [producto.nombre.lower() for producto in productos]
+        cantidad_matches = re.findall(r"(\d+)\s*cajas?\s*de\s*([\w\s]+)", text, re.IGNORECASE)
         if cantidad_matches:
             for match in cantidad_matches:
-          
                 if len(match) >= 2:
-                    cantidad, producto = int(match[0]), match[1]
-                    if producto in nombres_productos:
-                        productos_detectados.append({"producto": producto, "cantidad": cantidad})
-
-  
+                    cantidad, producto = int(match[0]), match[1].strip().lower()
+                    producto_detectado = next((p for p in nombres_productos if producto in p), None)
+                    if producto_detectado:
+                        productos_detectados.append({"producto": producto_detectado, "cantidad": cantidad})
         if not productos_detectados:
             text_embedding = ChatbotService.model.encode(text, convert_to_tensor=True)
             productos_embeddings = ChatbotService.model.encode(nombres_productos, convert_to_tensor=True)
@@ -636,6 +621,7 @@ class ChatbotService:
 
         logging.info(f"Productos detectados: {productos_detectados}")
         return productos_detectados
+
 
 
 
