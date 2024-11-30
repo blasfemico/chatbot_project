@@ -21,7 +21,6 @@ from app.schemas import (
 )
 from datetime import datetime
 from app import schemas
-from app.routes.orders import OrderService as OrderServiceCore
 import json
 from sentence_transformers import SentenceTransformer
 import logging

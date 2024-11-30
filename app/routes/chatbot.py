@@ -528,11 +528,7 @@ class ChatbotService:
         return productos
 
 
-
-
-    @staticmethod
-    async def create_order_from_context(sender_id: str, cuenta_id: int, db: Session) -> dict:
-        context = ChatbotService.user_contexts.get(sender_id, {}).get(cuenta_id)
+    async def create_order_from_context(self, sender_id: str, cuenta_id: int, db: Session, context: dict):
         if not context or not context.get("productos"):
             return {"respuesta": "No hay productos en tu orden. Por favor, agrega productos antes de confirmar."}
 
@@ -544,7 +540,7 @@ class ChatbotService:
         apellido = context.get("apellido", "Apellido")
         productos = context["productos"]
 
-        order_data = schemas.OrderCreate(
+        order_data = OrderService.OrderCreate(
             phone=telefono,
             email=None,
             address=None,
@@ -555,9 +551,9 @@ class ChatbotService:
         )
 
         try:
-            result = await OrderService.create_order(order_data, db, nombre, apellido)
+            result = self.create_order(db, order_data, nombre, apellido)
+            logging.info(f"Orden creada con éxito: {result}")
             del ChatbotService.user_contexts[sender_id][cuenta_id]
-
             return {
                 "respuesta": (
                     f"✅ Su pedido ya quedó registrado:\n"
@@ -568,7 +564,9 @@ class ChatbotService:
                 )
             }
         except Exception as e:
+            logging.error(f"Error al registrar la orden desde el contexto: {e}")
             return {"respuesta": f"❌ Error al registrar tu orden. Detalles: {e}"}
+
 
                     
     @staticmethod
