@@ -21,7 +21,7 @@ from app.schemas import (
 )
 from datetime import datetime
 from app import schemas
-from app.routes.orders import OrderService
+from app.routes.orders import OrderService as OrderServiceCore
 import json
 from sentence_transformers import SentenceTransformer
 import logging
@@ -249,7 +249,7 @@ class CRUDOrder:
                 "email": order.email or "N/A",
                 "address": order.address or "N/A",
                 "ciudad": order.ciudad or "N/A",
-                "producto": OrderService.deserialize_products(order.producto),
+                "producto": OrderServiceCore.deserialize_products(order.producto),
                 "cantidad_cajas": order.cantidad_cajas or "0",
                 "nombre": order.nombre or "N/A",
                 "apellido": order.apellido or "N/A",
@@ -285,7 +285,7 @@ class CRUDOrder:
             orders = []
             for order in orders_query.fetchall():
                 try:
-                    producto = OrderService.deserialize_products(order["producto"]) if order["producto"] else []
+                    producto = OrderServiceCore.deserialize_products(order["producto"]) if order["producto"] else []
                 except json.JSONDecodeError:
                     logging.error(f"Error al deserializar producto: {order['producto']}")
                     producto = []
