@@ -42,9 +42,11 @@ API_KEYS_FILE = "api_keys.json"
 processed_message_ids = set()
 
 class ChatbotService:
-    initial_message_sent = {} 
-    user_contexts = {}  
+    initial_message_sent = {}  
     order_timers = {} 
+    user_contexts = {}
+    product_embeddings = {} 
+    model = SentenceTransformer("all-MiniLM-L6-v2")
 
     @staticmethod
     def extract_product_from_initial_message(initial_message: str) -> str:
@@ -308,7 +310,6 @@ class ChatbotService:
 
     @staticmethod
     async def remind_missing_data(sender_id: str, cuenta_id: int, db: Session):
-        # Envía un recordatorio si faltan datos después de 1:30 minutos
         context = ChatbotService.user_contexts[sender_id][cuenta_id]
         if context["fase_actual"] != "finalizar_orden":
             response_text = (
@@ -324,12 +325,6 @@ class ChatbotService:
                 FacebookService.send_text_message(sender_id, response_text, "API_KEY_PLACEHOLDER")
                 del ChatbotService.user_contexts[sender_id][cuenta_id]
                 ChatbotService.order_timers.pop((sender_id, cuenta_id), None)
-
-
-    user_contexts = {}
-    product_embeddings = {} 
-    model = SentenceTransformer("all-MiniLM-L6-v2")
-
     @staticmethod
     async def ask_question(
         question: str, sender_id: str, cuenta_id: int, db: Session, hacer_order=False
@@ -358,9 +353,7 @@ class ChatbotService:
 
         context = ChatbotService.user_contexts[sender_id][cuenta_id]
         logging.info(f"Contexto inicial para sender_id {sender_id}, cuenta_id {cuenta_id}: {context}")
-
-        # Nueva lógica para guiar la creación de la orden
-        if context["fase_actual"] == "iniciar_orden" and hacer_order:
+        if context.get("fase_actual") == "iniciar_orden" and hacer_order:
             context["fase_actual"] = "recolectar_telefono"
             response_text = (
                 "¡Entendido! Para procesar tu orden, necesito recopilar algunos datos. "
@@ -369,7 +362,7 @@ class ChatbotService:
             ChatbotService.start_order_timer(sender_id, cuenta_id, db)
             return {"respuesta": response_text}
 
-        if context["fase_actual"] == "recolectar_telefono":
+        if context.get("fase_actual") == "recolectar_telefono":
             telefono = ChatbotService.extract_phone_number(sanitized_question)
             if telefono:
                 context["telefono"] = telefono
@@ -378,7 +371,7 @@ class ChatbotService:
             else:
                 return {"respuesta": "No pude detectar un número de teléfono válido. Por favor, indícamelo nuevamente."}
 
-        if context["fase_actual"] == "recolectar_nombre":
+        if context.get("fase_actual") == "recolectar_nombre":
             nombres = sanitized_question.split()
             if len(nombres) >= 2:
                 context["nombre"] = nombres[0]
@@ -388,7 +381,7 @@ class ChatbotService:
             else:
                 return {"respuesta": "Por favor, indícame tu nombre completo (nombre y apellido)."}
 
-        if context["fase_actual"] == "recolectar_productos":
+        if context.get("fase_actual") == "recolectar_productos":
             productos = ChatbotService.extract_product_and_quantity(sanitized_question, db)
             if productos:
                 for producto_info in productos:
@@ -400,7 +393,7 @@ class ChatbotService:
             else:
                 return {"respuesta": "No pude detectar los productos. Por favor, indícame nuevamente los productos y la cantidad."}
 
-        if context["fase_actual"] == "recolectar_ciudad":
+        if context.get("fase_actual") == "recolectar_ciudad":
             ciudades_disponibles = CRUDCiudad.get_all_cities(db)
             ciudades_nombres = [ciudad.nombre.lower() for ciudad in ciudades_disponibles]
             ciudad_detectada = next((ciudad for ciudad in ciudades_nombres if ciudad in sanitized_question), None)
@@ -411,18 +404,18 @@ class ChatbotService:
             else:
                 return {"respuesta": "No pude detectar la ciudad. Por favor, indícame la ciudad donde deseas recibir el pedido."}
 
-        if context["fase_actual"] == "recolectar_direccion":
+        if context.get("fase_actual") == "recolectar_direccion":
             context["direccion"] = sanitized_question
             context["fase_actual"] = "recolectar_email"
             return {"respuesta": "Por último, ¿podrías proporcionarme tu email? (Este dato es opcional)"}
 
-        if context["fase_actual"] == "recolectar_email":
+        if context.get("fase_actual")== "recolectar_email":
             if "@" in sanitized_question and "." in sanitized_question:
                 context["email"] = sanitized_question
             context["fase_actual"] = "confirmar_datos"
             return ChatbotService.confirmar_datos_orden(context)
 
-        if context["fase_actual"] == "confirmar_datos":
+        if context.get("fase_actual") == "confirmar_datos":
             if "si" in sanitized_question.lower():
                 context["fase_actual"] = "finalizar_orden"
                 return await ChatbotService.create_order_from_context(sender_id, cuenta_id, db, context)
@@ -432,10 +425,9 @@ class ChatbotService:
             else:
                 return {"respuesta": "¿Deseas confirmar estos datos para proceder con la orden? Responde 'Sí' o 'No'."}
 
-        if context["fase_actual"] == "finalizar_orden":
+        if context.get("fase_actual") == "finalizar_orden":
             return await ChatbotService.create_order_from_context(sender_id, cuenta_id, db, context)
 
-        # Continuación del flujo normal
         logging.info(f"Contexto actualizado para sender_id {sender_id}: {context}")
         ciudades_disponibles = CRUDCiudad.get_all_cities(db)
         ciudades_nombres = [ciudad.nombre.lower() for ciudad in ciudades_disponibles]
