@@ -25,6 +25,7 @@ from app.routes.orders import OrderService as OrderServiceCore
 import json
 from sentence_transformers import SentenceTransformer
 import logging
+from app.schemas import ProductInput
 from typing import List
 logging.basicConfig(level=logging.INFO)
 
@@ -189,23 +190,40 @@ class CRUDOrder:
         today = datetime.today().weekday() 
         delivery_day = "lunes" if today == 5 else "mañana"
         return f"Su pedido se entregará el {delivery_day}."
+    
+    @staticmethod
+    def serialize_products(productos: list[ProductInput]) -> str:
+        try:
+            return json.dumps([p.dict() for p in productos])
+        except Exception as e:
+            raise ValueError(f"Error al serializar productos: {e}")
+
+    @staticmethod
+    def deserialize_products(productos_str: str) -> list[ProductInput]:
+        try:
+            productos = json.loads(productos_str)
+            return [ProductInput(**p) for p in productos]
+        except Exception as e:
+            raise ValueError(f"Error al deserializar productos: {e}")
+        
 
     
     def create_order(self, db: Session, order: schemas.OrderCreate, nombre: str, apellido: str):
         try:
-            if not isinstance(order.producto, str):
-                raise ValueError("El campo 'producto' debe estar serializado como JSON.")
-            productos_serializados = order.producto
-
-            ciudad = CRUDCiudad.get_city_by_phone_prefix(db, order.phone[:3]) or "N/A"
+            if isinstance(order.producto, list):
+                productos_serializados = self.serialize_products(order.producto)
+            else:
+                productos_serializados = order.producto
 
             new_order = Order(
                 phone=order.phone,
                 email=order.email or "N/A",
                 address=order.address or "N/A",
                 producto=productos_serializados,  
-                ciudad=ciudad,
-                cantidad_cajas=", ".join([str(p["cantidad"]) for p in json.loads(productos_serializados)]),
+                ciudad=order.ciudad or "N/A",
+                cantidad_cajas=", ".join(
+                    [str(p["cantidad"]) for p in json.loads(productos_serializados)]
+                ),
                 nombre=nombre,
                 apellido=apellido,
                 ad_id=order.ad_id or "N/A",
@@ -219,6 +237,7 @@ class CRUDOrder:
             db.rollback()
             logging.error(f"Error al crear la orden: {e}")
             raise HTTPException(status_code=500, detail="Error al crear la orden.")
+
 
     def delete_order(self, db: Session, order_id: int):
         try:
@@ -249,7 +268,7 @@ class CRUDOrder:
                 "email": order.email or "N/A",
                 "address": order.address or "N/A",
                 "ciudad": order.ciudad or "N/A",
-                "producto": OrderServiceCore.deserialize_products(order.producto),
+                "producto": self.deserialize_products(order.producto),
                 "cantidad_cajas": order.cantidad_cajas or "0",
                 "nombre": order.nombre or "N/A",
                 "apellido": order.apellido or "N/A",
@@ -261,8 +280,6 @@ class CRUDOrder:
         except Exception as e:
             logging.error(f"Error al obtener la orden con ID {order_id}: {str(e)}")
             raise HTTPException(status_code=500, detail="Error al obtener la orden.")
-
-
 
     def get_all_orders(self, db: Session, skip: int = 0, limit: int = 10):
         logging.info(f"Obteniendo todas las órdenes. Saltar: {skip}, Límite: {limit}")
@@ -285,7 +302,7 @@ class CRUDOrder:
             orders = []
             for order in orders_query.fetchall():
                 try:
-                    producto = OrderServiceCore.deserialize_products(order["producto"]) if order["producto"] else []
+                    producto = self.deserialize_products(order["producto"]) if order["producto"] else []
                 except json.JSONDecodeError:
                     logging.error(f"Error al deserializar producto: {order['producto']}")
                     producto = []
