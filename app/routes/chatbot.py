@@ -84,24 +84,20 @@ class ChatbotService:
         initial_message: bool = False,  
     ) -> str:
         logging.info(f"Recibido db_response en generate_humanlike_response: {db_response}")
+
         if not ciudades_disponibles or not isinstance(ciudades_disponibles, list):
             raise ValueError("El parámetro 'ciudades_disponibles' debe ser una lista no vacía.")
         if not productos_por_ciudad or not isinstance(productos_por_ciudad, dict):
             raise ValueError("El parámetro 'productos_por_ciudad' debe ser un diccionario no vacío.")
-
         ciudades_str = ", ".join([str(ciudad) for ciudad in ciudades_disponibles])
-
         productos_por_ciudad_str = "\n".join(
-        [f"{ciudad.capitalize()}: {', '.join(map(str, productos))}" for ciudad, productos in productos_por_ciudad.items()]
-    )
-        
-        if not db_response or "(revisar base de datos)" in db_response:
-            logging.warning("db_response no contiene precios válidos o está mal formateado.")
-            db_response = "No hay datos de precios disponibles en este momento"
-
+            [f"{ciudad.capitalize()}: {', '.join(map(str, productos))}" for ciudad, productos in productos_por_ciudad.items()]
+        )
         ChatbotService.update_keywords_based_on_feedback(question)
-        initial_message = ChatbotService.initial_message_sent.get(sender_id, False)
-
+        initial_message = not ChatbotService.initial_message_sent.get(sender_id, False)
+        
+        if initial_message:
+            ChatbotService.initial_message_sent[sender_id] = True
         feedback_phrases = [
             "muchas gracias", "no gracias", "ya no", "listo", "luego te hablo",
             "no necesito más", "ok", "gracias por info", "adios"
@@ -116,7 +112,7 @@ class ChatbotService:
 
 
         **Condiciones especiales:**
-        - Si `{initial_message}` es falso (es el primer mensaje del cliente), responde con el siguiente texto con la informacion de {db_response}, remplaza los (revisar base de datos) por informacion de la base de datos:
+        - Si `{initial_message}` es verdadero (es el primer mensaje del cliente), responde con el siguiente texto con la informacion de {db_response}, remplaza los (revisar base de datos) por informacion de la base de datos:
         
             Hola, te comparto información de mi producto estrella:
 
@@ -224,11 +220,6 @@ class ChatbotService:
         if len(clean_response) < 10 or "No disponible" in clean_response:
             logging.info("Respuesta detectada como poco clara, solicitando aclaración al usuario.")
             return "Lo siento, no entendí completamente tu pregunta. ¿Podrías repetirla o hacerla de otra manera?"
-
-        if not initial_message:
-            ChatbotService.initial_message_sent[sender_id] = True  
-            logging.info(f"Mensaje inicial enviado para sender_id {sender_id}. Estado actualizado.")
-
 
         return clean_response
     
@@ -547,19 +538,21 @@ class ChatbotService:
         nombre = context.get("nombre", "Cliente")
         apellido = context.get("apellido", "Apellido")
         productos = context["productos"]
-        cantidad_cajas = sum([p["cantidad"] for p in productos])
-        ciudad = context.get("ciudad", "N/A")  
+        cantidad_cajas_str = ", ".join([str(p["cantidad"]) for p in productos])
+        cantidad_cajas_list = [int(cantidad) for cantidad in cantidad_cajas_str.split(",")]
+        cantidad_cajas = sum(cantidad_cajas_list)
+        
+        ciudad = context.get("ciudad", "N/A")
 
         order_data = schemas.OrderCreate(
             phone=telefono,
             email=None,
             address=None,
             producto=productos,
-            cantidad_cajas=cantidad_cajas,
+            cantidad_cajas=cantidad_cajas_str,  
             ciudad=ciudad,
             ad_id=context.get("ad_id", "N/A"),
         )
-
         try:
             result = await OrderService.create_order(order_data, db, nombre, apellido)
             logging.info(f"Orden creada con éxito: {result}")
@@ -577,6 +570,7 @@ class ChatbotService:
             logging.error(f"Error al registrar la orden desde el contexto: {e}")
             return {"respuesta": f"❌ Error al registrar tu orden. Detalles: {e}"}
 
+
     @staticmethod
     def extract_phone_number(text: str):
         phone_match = re.search(r"\+?\d{10,15}", text)
@@ -592,6 +586,7 @@ class ChatbotService:
         if not productos:
             logging.warning("No hay productos disponibles en la base de datos. Continuando sin detección de productos.")
             return productos_detectados 
+
         nombres_productos = [producto.nombre.lower() for producto in productos]
         cantidad_matches = re.findall(r"(\d+)\s*cajas?\s*de\s*([\w\s]+)", text, re.IGNORECASE)
         if cantidad_matches:
@@ -621,6 +616,7 @@ class ChatbotService:
 
         logging.info(f"Productos detectados: {productos_detectados}")
         return productos_detectados
+
 
 
 
@@ -761,57 +757,6 @@ class FacebookService:
 class FacebookService:
     API_KEYS_FILE = "api_keys.json"
     model = SentenceTransformer("all-MiniLM-L6-v2")
-    @staticmethod
-    async def analyze_order_context_with_chatgpt(chat_history: str) -> dict:
-        prompt = f"""
-        Eres un asistente de ventas virtual. Dado el historial de chat a continuación, identifica si el cliente ha pedido un producto específico y la cantidad deseada.
-        
-        Reglas para analizar el historial de chat:
-        - Lee todo el historial cuidadosamente y busca menciones específicas de productos (como nombres específicos) y cantidades (números).
-        - Si encuentras un producto y una cantidad clara, regístralos en el formato solicitado.
-        - Si no se menciona un producto o una cantidad explícita, responde con un JSON vacío.
-        - Cualquier relacionado con "Quiero (numero de cajas) de acxion", se relaciona con el trigger de orders.
-        
-        Historial del chat:
-        {chat_history}
-
-        Responde en formato JSON como este:
-        {{
-            "producto": "<nombre del producto>",
-            "cantidad": <cantidad>
-        }}
-
-        Si no se menciona un producto o cantidad específica en el historial, responde con un JSON vacío.
-        """
-
-        try:
-            response = client.chat.completions.create(
-                model="gpt-4o",
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=100,
-            )
-            result = response.choices[0].message.content.strip()
-            logging.info(f"Raw response from ChatGPT: {result}")
-
-       
-            try:
-                context_data = json.loads(result)
-            except json.JSONDecodeError:
-                logging.error("Error decoding JSON from ChatGPT response, returning empty context.")
-                return {}
-
-         
-            if not context_data.get("producto") or not context_data.get("cantidad"):
-                logging.info("Producto o cantidad no especificados claramente en el historial.")
-                return {}
-
-            logging.info(f"Parsed context data: {context_data}")
-            return context_data
-
-        except Exception as e:
-            logging.error(f"Error al interpretar la respuesta de ChatGPT: {str(e)}")
-            return {}
-        
     @staticmethod
     def analyze_order_without_ai(message_text: str, productos_nombres: list) -> dict:
         message_embedding = FacebookService.model.encode(message_text)
@@ -967,10 +912,6 @@ class FacebookService:
                 detail=f"Error al enviar el mensaje de texto: {response.json()}",
             )
         return response.json()
-
-
-
-
 
     @staticmethod
     def send_message_or_image(recipient_id: str, answer: str):
