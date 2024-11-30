@@ -48,24 +48,24 @@ class OrderService:
     @staticmethod
     async def create_order(order_data: schemas.OrderCreate, db: Session, nombre: str = "N/A", apellido: str = "N/A") -> dict:
         try:
-            # Convertir producto a JSON si es necesario
             if isinstance(order_data.producto, list):
-                order_data.producto = json.dumps(order_data.producto)
+
+                order_data.producto = json.dumps([p.dict() for p in order_data.producto])
 
             crud_order = CRUDOrder()
             new_order = crud_order.create_order(db=db, order=order_data, nombre=nombre, apellido=apellido)
 
-            delivery_message = CRUDOrder.get_delivery_day_message()
             return {
-                "message": f"Gracias por su pedido. {delivery_message}",
+                "message": "Orden creada exitosamente.",
                 "order": new_order
             }
         except ValueError as ve:
-            logging.error(f"Error en el campo 'producto': {ve}")
+            logging.error(f"Error de validación en el campo 'producto': {ve}")
             raise HTTPException(status_code=400, detail=str(ve))
         except Exception as e:
             logging.error(f"Error al crear la orden: {e}")
             raise HTTPException(status_code=500, detail="Error al crear el pedido.")
+
         
     @staticmethod
     async def update_order(order_id: int, order_data: schemas.OrderUpdate, db: Session) -> dict:

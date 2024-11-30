@@ -190,25 +190,21 @@ class CRUDOrder:
         return f"Su pedido se entregará el {delivery_day}."
 
     
-    def create_order(self, db: Session, order: schemas.OrderCreate, nombre: str, apellido: str) -> schemas.OrderResponse:
+    def create_order(self, db: Session, order: schemas.OrderCreate, nombre: str, apellido: str):
         try:
-            if not order.phone:
-                raise HTTPException(status_code=400, detail="El campo 'phone' es obligatorio.")
-            if not order.producto or len(order.producto) == 0:
-                raise HTTPException(status_code=400, detail="Debe incluir al menos un producto.")
-            if not isinstance(order.producto, list) or not all(isinstance(p, dict) for p in order.producto):
-                raise HTTPException(status_code=400, detail="El campo 'producto' debe ser una lista de diccionarios.")
+            if not isinstance(order.producto, list):
+                raise ValueError("El campo 'producto' debe ser una lista de productos.")
 
-            productos_serializados = json.dumps(order.producto)
-
+            productos_serializados = json.dumps(order.producto)  # Serializar productos
             ciudad = CRUDCiudad.get_city_by_phone_prefix(db, order.phone[:3]) or "N/A"
+
             new_order = Order(
                 phone=order.phone,
                 email=order.email or "N/A",
                 address=order.address or "N/A",
-                cantidad_cajas=", ".join([str(p["cantidad"]) for p in order.producto]),
-                producto=productos_serializados, 
+                producto=productos_serializados,  # Guardar como JSON
                 ciudad=ciudad,
+                cantidad_cajas=", ".join([str(p["cantidad"]) for p in order.producto]),
                 nombre=nombre,
                 apellido=apellido,
                 ad_id=order.ad_id or "N/A",
@@ -216,36 +212,11 @@ class CRUDOrder:
             db.add(new_order)
             db.commit()
             db.refresh(new_order)
-            if isinstance(new_order.producto, str):
-                productos_deserializados = json.loads(new_order.producto)
-            else:
-                productos_deserializados = new_order.producto
-
-            return schemas.OrderResponse(
-                id=new_order.id,
-                phone=new_order.phone,
-                email=new_order.email,
-                address=new_order.address,
-                ciudad=new_order.ciudad,
-                productos=productos_deserializados,
-                cantidad_cajas=new_order.cantidad_cajas,
-                nombre=new_order.nombre,
-                apellido=new_order.apellido,
-                ad_id=new_order.ad_id,
-            )
-
+            return schemas.OrderResponse.from_orm(new_order)
         except Exception as e:
             db.rollback()
-            logging.error(f"Error al crear la orden: {str(e)}")
+            logging.error(f"Error al crear la orden: {e}")
             raise HTTPException(status_code=500, detail="Error al crear la orden.")
-
-
-        except Exception as e:
-            db.rollback()
-            logging.error(f"Error al crear la orden: {str(e)}")
-            raise HTTPException(status_code=500, detail="Error al crear la orden.")
-
-
 
 
     def update_order(self, db: Session, order_id: int, order_data: schemas.OrderUpdate):

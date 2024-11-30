@@ -62,11 +62,12 @@ class OrderCreate(BaseModel):
     email: Optional[str] = "N/A"
     address: Optional[str] = "N/A"
     ciudad: Optional[str] = "N/A"
-    producto: Union[str, List[ProductInput]] 
+    producto: Union[List[ProductInput], List[dict]]  
     cantidad_cajas: Optional[int] = 1
     nombre: Optional[str] = None
     apellido: Optional[str] = None
     ad_id: Optional[str] = None
+
 
 class OrderResponse(BaseModel):
     id: int
@@ -75,14 +76,13 @@ class OrderResponse(BaseModel):
     address: Optional[str]
     ciudad: Optional[str]
     producto: List[ProductInput] 
-    cantidad_cajas: int    
+    cantidad_cajas: int
     nombre: Optional[str]
     apellido: Optional[str]
     ad_id: Optional[str]
 
     class Config:
         from_attributes = True
-
 
 # Modelos para Cuenta
 class Cuenta(BaseModel):
