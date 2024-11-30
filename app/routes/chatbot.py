@@ -351,7 +351,7 @@ class ChatbotService:
             "voy a realizar mi pedido", "necesito hacer un pedido ya", "quisiera agendar una orden",
             "voy a adquirir un producto", "quiero agendar un pedido ahora", "quisiera comprar algo",
             "quiero obtener el producto", "me interesa hacer un pedido", "necesito adquirir algo",
-            "me gustaría ordenar ahora", "voy a comprar el producto", "quiero hacer mi orden",
+            "me gustaría ordenar ahora", "voy a comprar el producto", "quiero hacer mi orden", "order", "quiero", 
             "quiero agendar mi pedido", "quiero procesar una orden", "quiero adquirir el producto ahora", "quiero comprar", "voy a comprar"
         ]
 

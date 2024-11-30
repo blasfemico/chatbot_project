@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
 from typing import Optional, List, Union
 
 
@@ -63,10 +63,14 @@ class OrderCreate(BaseModel):
     address: Optional[str] = "N/A"
     ciudad: Optional[str] = "N/A"
     producto: Union[str, List[ProductInput]] 
-    cantidad_cajas: Optional[str] = "1"
+    cantidad_cajas: Optional[Union[int, str]] = "1"
     nombre: Optional[str] = None
     apellido: Optional[str] = None
     ad_id: Optional[str] = None
+
+    @validator("cantidad_cajas", pre=True, always=True)
+    def convert_cantidad_cajas(cls, v):
+        return str(v)
 
 
 class OrderResponse(BaseModel):
