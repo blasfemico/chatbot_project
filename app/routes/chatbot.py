@@ -333,6 +333,31 @@ class ChatbotService:
         logging.info(f"Pregunta original: {question}")
         logging.info(f"Pregunta sanitizada: {sanitized_question}")
         ChatbotService.update_keywords_based_on_feedback(question)
+        
+
+        order_intent_phrases = [
+            "hacer una orden", "quiero pedir", "voy a comprar", "quiero hacer un pedido",
+            "ordenar", "comprar", "quiero ordenar", "voy a ordenar", "quiero hacer una compra",
+            "me gustaría pedir", "necesito comprar", "quiero realizar una orden", "realizar un pedido",
+            "quiero adquirir", "voy a hacer una compra", "quiero agendar un pedido", "necesito ordenar",
+            "voy a hacer un pedido", "voy a realizar una compra", "quisiera comprar", "quiero hacer una compra",
+            "voy a agendar un pedido", "quisiera realizar un pedido", "me gustaría hacer una orden",
+            "necesito hacer un pedido", "voy a realizar un pedido", "voy a adquirir", "quiero agendar una compra",
+            "quiero comprar algo", "quiero hacer mi pedido", "quiero un producto", "necesito agendar una compra",
+            "quisiera hacer una compra", "necesito hacer una compra", "me interesa pedir",
+            "voy a realizar una orden", "estoy interesado en pedir", "quisiera agendar un pedido",
+            "me gustaría hacer un pedido", "quiero pedir algo", "quisiera ordenar", "voy a pedir",
+            "quiero hacer una orden ahora", "estoy listo para pedir", "estoy listo para hacer una orden",
+            "voy a realizar mi pedido", "necesito hacer un pedido ya", "quisiera agendar una orden",
+            "voy a adquirir un producto", "quiero agendar un pedido ahora", "quisiera comprar algo",
+            "quiero obtener el producto", "me interesa hacer un pedido", "necesito adquirir algo",
+            "me gustaría ordenar ahora", "voy a comprar el producto", "quiero hacer mi orden",
+            "quiero agendar mi pedido", "quiero procesar una orden", "quiero adquirir el producto ahora", "quiero comprar", "voy a comprar"
+        ]
+
+        if any(phrase in sanitized_question for phrase in order_intent_phrases):
+            hacer_order = True 
+
 
         if sender_id not in ChatbotService.user_contexts:
             ChatbotService.user_contexts[sender_id] = {}
@@ -348,15 +373,16 @@ class ChatbotService:
                 "ciudad": None,
                 "direccion": None,
                 "email": None,
-                "fase_actual": "iniciar_orden",
+                "fase_actual": "iniciar_orden" if hacer_order else "espera",
             }
+
 
         context = ChatbotService.user_contexts[sender_id][cuenta_id]
         logging.info(f"Contexto inicial para sender_id {sender_id}, cuenta_id {cuenta_id}: {context}")
         if context.get("fase_actual") == "iniciar_orden" and hacer_order:
             context["fase_actual"] = "recolectar_telefono"
             response_text = (
-                "¡Entendido! Para procesar tu orden, necesito recopilar algunos datos. "
+                "¡Entendido! para agendar tu pedido solo necesito los siguientes datos: Tu número de teléfono, Dirección con número de casa, Ciudad en la que vives, Producto que deseas, Número de cajas que necesitas "
                 "Primero, por favor indícame tu número de teléfono."
             )
             ChatbotService.start_order_timer(sender_id, cuenta_id, db)
