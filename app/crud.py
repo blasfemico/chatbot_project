@@ -196,6 +196,9 @@ class CRUDOrder:
                 raise HTTPException(status_code=400, detail="El campo 'phone' es obligatorio.")
             if not order.producto or len(order.producto) == 0:
                 raise HTTPException(status_code=400, detail="Debe incluir al menos un producto.")
+            if not isinstance(order.producto, list) or not all(isinstance(p, dict) for p in order.producto):
+                raise HTTPException(status_code=400, detail="El campo 'producto' debe ser una lista de diccionarios.")
+
             productos_serializados = json.dumps(order.producto)
 
             ciudad = CRUDCiudad.get_city_by_phone_prefix(db, order.phone[:3]) or "N/A"
@@ -204,7 +207,7 @@ class CRUDOrder:
                 email=order.email or "N/A",
                 address=order.address or "N/A",
                 cantidad_cajas=", ".join([str(p["cantidad"]) for p in order.producto]),
-                producto=productos_serializados,  # Guardar como JSON serializado
+                producto=productos_serializados, 
                 ciudad=ciudad,
                 nombre=nombre,
                 apellido=apellido,
@@ -213,8 +216,11 @@ class CRUDOrder:
             db.add(new_order)
             db.commit()
             db.refresh(new_order)
+            if isinstance(new_order.producto, str):
+                productos_deserializados = json.loads(new_order.producto)
+            else:
+                productos_deserializados = new_order.producto
 
-            productos_deserializados = json.loads(new_order.producto)
             return schemas.OrderResponse(
                 id=new_order.id,
                 phone=new_order.phone,
@@ -227,6 +233,12 @@ class CRUDOrder:
                 apellido=new_order.apellido,
                 ad_id=new_order.ad_id,
             )
+
+        except Exception as e:
+            db.rollback()
+            logging.error(f"Error al crear la orden: {str(e)}")
+            raise HTTPException(status_code=500, detail="Error al crear la orden.")
+
 
         except Exception as e:
             db.rollback()
@@ -317,25 +329,29 @@ class CRUDOrder:
                 ).offset(skip).limit(limit)
             )
             # Convierte a lista de diccionarios y deserializa producto
-            return [
-                {
+            orders = []
+            for order in orders_query.fetchall():
+                try:
+                    producto = json.loads(order["producto"]) if order["producto"] else []
+                except json.JSONDecodeError:
+                    logging.error(f"Error al deserializar producto: {order['producto']}")
+                    producto = []
+                orders.append({
                     "id": order["id"],
                     "phone": order["phone"] or "N/A",
                     "email": order["email"] or "N/A",
                     "address": order["address"] or "N/A",
                     "ciudad": order["ciudad"] or "N/A",
-                    "producto": json.loads(order["producto"]) if order["producto"] else [],
+                    "producto": producto,
                     "cantidad_cajas": order["cantidad_cajas"] or 0,
                     "nombre": order["nombre"] or "N/A",
                     "apellido": order["apellido"] or "N/A",
                     "ad_id": order["ad_id"] or "N/A",
-                }
-                for order in orders_query.fetchall()
-            ]
+                })
+            return orders
         except Exception as e:
             logging.error(f"Error al obtener las órdenes: {str(e)}")
             raise HTTPException(status_code=500, detail="Error al obtener las órdenes.")
-
 
 
 class CRUDCuenta:
