@@ -48,15 +48,10 @@ class OrderService:
     @staticmethod
     async def create_order(order_data: schemas.OrderCreate, db: Session, nombre: str = "N/A", apellido: str = "N/A") -> dict:
         try:
-            if isinstance(order_data.producto, str):
-                order_data.producto = OrderService.parse_product_input(order_data.producto)
-            elif isinstance(order_data.producto, list):
-                order_data.producto = [
-                    {"producto": prod["producto"], "cantidad": prod.get("cantidad", 1)}
-                    for prod in order_data.producto if isinstance(prod, dict)
-                ]
-            else:
-                raise ValueError("El campo 'producto' debe ser una lista o un string.")
+            # Convertir producto a JSON si es necesario
+            if isinstance(order_data.producto, list):
+                order_data.producto = json.dumps(order_data.producto)
+
             crud_order = CRUDOrder()
             new_order = crud_order.create_order(db=db, order=order_data, nombre=nombre, apellido=apellido)
 
@@ -65,14 +60,13 @@ class OrderService:
                 "message": f"Gracias por su pedido. {delivery_message}",
                 "order": new_order
             }
-
         except ValueError as ve:
             logging.error(f"Error en el campo 'producto': {ve}")
             raise HTTPException(status_code=400, detail=str(ve))
         except Exception as e:
             logging.error(f"Error al crear la orden: {e}")
             raise HTTPException(status_code=500, detail="Error al crear el pedido.")
-
+        
     @staticmethod
     async def update_order(order_id: int, order_data: schemas.OrderUpdate, db: Session) -> dict:
         try:
@@ -189,7 +183,7 @@ async def get_all_orders(skip: int = 0, limit: int = 1000, db: Session = Depends
             "email": order["email"] or "N/A",
             "address": order["address"] or "N/A",
             "ciudad": order["ciudad"] or "N/A",
-            "producto": json.loads(order["producto"]) if order["producto"] else [],
+            "producto": json.loads(order["producto"]) if order["producto"] else [], 
             "cantidad_cajas": order["cantidad_cajas"] or 1,
             "nombre": order["nombre"] or "N/A",
             "apellido": order["apellido"] or "N/A",
@@ -197,6 +191,7 @@ async def get_all_orders(skip: int = 0, limit: int = 1000, db: Session = Depends
         }
         for order in orders
     ]
+
 
 @router.get("/orders/export_excel/")
 async def export_orders_to_excel_endpoint(db: Session = Depends(get_db), file_path: Optional[str] = None):

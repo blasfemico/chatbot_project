@@ -25,8 +25,6 @@ import json
 from sentence_transformers import SentenceTransformer
 import logging
 from typing import List
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-
 logging.basicConfig(level=logging.INFO)
 
 
@@ -198,6 +196,7 @@ class CRUDOrder:
                 raise HTTPException(status_code=400, detail="El campo 'phone' es obligatorio.")
             if not order.producto or len(order.producto) == 0:
                 raise HTTPException(status_code=400, detail="Debe incluir al menos un producto.")
+            productos_serializados = json.dumps(order.producto)
 
             ciudad = CRUDCiudad.get_city_by_phone_prefix(db, order.phone[:3]) or "N/A"
             new_order = Order(
@@ -205,7 +204,7 @@ class CRUDOrder:
                 email=order.email or "N/A",
                 address=order.address or "N/A",
                 cantidad_cajas=", ".join([str(p["cantidad"]) for p in order.producto]),
-                producto=order.producto, 
+                producto=productos_serializados,  # Guardar como JSON serializado
                 ciudad=ciudad,
                 nombre=nombre,
                 apellido=apellido,
@@ -214,6 +213,7 @@ class CRUDOrder:
             db.add(new_order)
             db.commit()
             db.refresh(new_order)
+
             productos_deserializados = json.loads(new_order.producto)
             return schemas.OrderResponse(
                 id=new_order.id,
