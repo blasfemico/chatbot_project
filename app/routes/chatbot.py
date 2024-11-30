@@ -300,7 +300,7 @@ class ChatbotService:
             ChatbotService.order_timers[(sender_id, cuenta_id)].cancel()
 
         async def timer():
-            await asyncio.sleep(900)  # 15 minutos de espera total
+            await asyncio.sleep(60)  
             context = ChatbotService.user_contexts[sender_id][cuenta_id]
             if context["fase_actual"] == "espera_datos_faltantes":
                 datos_faltantes = []
@@ -325,29 +325,6 @@ class ChatbotService:
 
         ChatbotService.order_timers[(sender_id, cuenta_id)] = asyncio.create_task(timer())
 
-
-    @staticmethod
-    def confirmar_datos_orden(context: dict) -> dict:
-        productos = context.get("productos", [])
-        telefono = context.get("telefono", "No proporcionado")
-        ciudad = context.get("ciudad", "No proporcionada")
-        direccion = context.get("direccion", "No proporcionada")
-        email = context.get("email", "No proporcionado")
-
-        # Construir un resumen de los datos recopilados
-        productos_str = ", ".join([f"{p['cantidad']} x {p['producto']}" for p in productos])
-        resumen = (
-            f"Resumen de tu orden:\n"
-            f"Productos: {productos_str}\n"
-            f"Teléfono: {telefono}\n"
-            f"Ciudad: {ciudad}\n"
-            f"Dirección: {direccion}\n"
-            f"Email: {email}\n\n"
-            "¿Deseas confirmar estos datos para proceder con la orden? Responde 'Sí' o 'No'."
-        )
-
-        return {"respuesta": resumen}
-    
     @staticmethod
     async def ask_question(
         question: str, sender_id: str, cuenta_id: int, db: Session, hacer_order=False
@@ -413,21 +390,16 @@ class ChatbotService:
                 "email": None,
                 "fase_actual": "iniciar_orden" if hacer_order else "espera",
                 "orden_flujo_aislado": hacer_order,
-                "fecha_inicio_orden": datetime.now() if hacer_order else None
+                "fecha_inicio_orden": datetime.now() 
             }
-
         context = ChatbotService.user_contexts[sender_id][cuenta_id]
         logging.info(f"Contexto inicial para sender_id {sender_id}, cuenta_id {cuenta_id}: {context}")
-
-        # Recolectar productos antes de la fase de aislamiento
         productos = ChatbotService.extract_product_and_quantity(sanitized_question, db)
         if productos:
             for producto_info in productos:
                 producto = producto_info.get("producto")
                 cantidad = producto_info.get("cantidad", 1)
                 ChatbotService.update_context(sender_id, cuenta_id, producto, cantidad)
-
-        # Flujo de recolección de datos
         if hacer_order:
             context["orden_flujo_aislado"] = True
             response_text = (
@@ -439,8 +411,6 @@ class ChatbotService:
             )
             ChatbotService.start_order_timer(sender_id, cuenta_id, db)
             return {"respuesta": response_text}
-
-        # Recolección y validación de datos faltantes
         if context.get("orden_flujo_aislado"):
             datos_faltantes = []
             if not context.get("telefono"):
@@ -455,21 +425,24 @@ class ChatbotService:
             if datos_faltantes:
                 logging.info(f"Datos faltantes: {datos_faltantes}")
                 context["fase_actual"] = "espera_datos_faltantes"
-                # Si pasan 5 minutos y faltan datos, se envía un recordatorio
-                if datetime.now() - context["fecha_inicio_orden"] > timedelta(minutes=5):
+                if datetime.now() - context["fecha_inicio_orden"] > timedelta(minutes=1):
                     reminder_text = (
                         "Hola, aún no hemos recibido toda la información. Por favor, proporciona los siguientes datos para continuar:\n"
                         f"- {', '.join(datos_faltantes)}"
                     )
                     return {"respuesta": reminder_text}
-                # Si pasan 15 minutos y aún faltan datos esenciales (teléfono), se realiza una acción específica
-                elif datetime.now() - context["fecha_inicio_orden"] > timedelta(minutes=15):
+                elif datetime.now() - context["fecha_inicio_orden"] > timedelta(minutes=2):
                     if not context.get("telefono"):
-                        return {"respuesta": "Es necesario que nos proporciones tu número de teléfono para proceder con la orden."}
-                    else:
-                        return await ChatbotService.create_order_from_context(sender_id, cuenta_id, db, context)
+                        reminder_text = (
+                            "Es necesario que nos proporciones tu número de teléfono para proceder con la orden."
+                        )
+                        await asyncio.sleep(60)
+                        if not context.get("telefono"):
+                            logging.info("Cancelando la orden debido a la falta de información esencial (teléfono).")
+                            del ChatbotService.user_contexts[sender_id][cuenta_id]
+                            return {"respuesta": "Lamentablemente, hemos cancelado la orden debido a la falta de información. Si deseas hacer un pedido, por favor inicia el proceso nuevamente."}
+                        return {"respuesta": reminder_text}
 
-        # Continuar con la lógica estándar si no hay intención de hacer orden
         logging.info(f"Contexto actualizado para sender_id {sender_id}: {context}")
         ciudades_disponibles = CRUDCiudad.get_all_cities(db)
         ciudades_nombres = [ciudad.nombre.lower() for ciudad in ciudades_disponibles]
@@ -654,6 +627,9 @@ class ChatbotService:
     async def create_order_from_context(sender_id: str, cuenta_id: int, db: Session, context: dict):
         if not context or not context.get("productos"):
             return {"respuesta": "No hay productos en tu orden. Por favor, agrega productos antes de confirmar."}
+        
+        if context.get("fecha_inicio_orden") is None:
+            context["fecha_inicio_orden"] = datetime.now()
 
         telefono = context.get("telefono")
         if not telefono:
