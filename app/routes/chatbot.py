@@ -330,6 +330,28 @@ class ChatbotService:
 
 
     @staticmethod
+    def confirmar_datos_orden(context: dict) -> dict:
+        productos = context.get("productos", [])
+        telefono = context.get("telefono", "No proporcionado")
+        ciudad = context.get("ciudad", "No proporcionada")
+        direccion = context.get("direccion", "No proporcionada")
+        email = context.get("email", "No proporcionado")
+
+        # Construir un resumen de los datos recopilados
+        productos_str = ", ".join([f"{p['cantidad']} x {p['producto']}" for p in productos])
+        resumen = (
+            f"Resumen de tu orden:\n"
+            f"Productos: {productos_str}\n"
+            f"Teléfono: {telefono}\n"
+            f"Ciudad: {ciudad}\n"
+            f"Dirección: {direccion}\n"
+            f"Email: {email}\n\n"
+            "¿Deseas confirmar estos datos para proceder con la orden? Responde 'Sí' o 'No'."
+        )
+
+        return {"respuesta": resumen}
+    
+    @staticmethod
     async def ask_question(
         question: str, sender_id: str, cuenta_id: int, db: Session, hacer_order=False
     ) -> dict:
@@ -337,7 +359,6 @@ class ChatbotService:
         logging.info(f"Pregunta original: {question}")
         logging.info(f"Pregunta sanitizada: {sanitized_question}")
         ChatbotService.update_keywords_based_on_feedback(question)
-        
         order_intent_phrases = [
             "hacer una orden", "quiero pedir", "voy a comprar", "quiero hacer un pedido",
             "ordenar", "comprar", "quiero ordenar", "voy a ordenar", "quiero hacer una compra",
@@ -361,13 +382,18 @@ class ChatbotService:
         no_order_intent_phrases = [
             "quiero hablar de otra cosa", "no quiero hacer una orden", "cambiemos de tema",
             "no estoy interesado en hacer un pedido", "hablemos de algo más", "no quiero ordenar ahora",
-            "prefiero no hacer un pedido", "quiero discutir otra cosa", "no quiero comprar", "no me interesa hacer una orden"
+            "prefiero no hacer un pedido", "quiero discutir otra cosa", "no quiero comprar", "no me interesa hacer una orden",  "no quiero proporcionar más información", "prefiero que me hablen al celular", "no quiero dar más datos",
+            "no tengo más información", "no deseo proporcionar más detalles", "prefiero no seguir dando información",
+            "solo quiero el pedido con lo que ya dije", "no quiero seguir dando datos", "ya es suficiente información",
+            "no quiero compartir más", "mejor hablenme al teléfono", "prefiero que me contacten por teléfono",
+            "no quiero seguir", "eso es todo", "no quiero decir más","no gracias", "no"
         ]
 
         if any(phrase in sanitized_question for phrase in order_intent_phrases):
-            hacer_order = True 
-
+            logging.info("Intención detectada: hacer una orden")
+            hacer_order = True
         if any(phrase in sanitized_question for phrase in no_order_intent_phrases):
+            logging.info("Intención detectada: no hacer una orden")
             hacer_order = False
             context = ChatbotService.user_contexts.get(sender_id, {}).get(cuenta_id, {})
             context["orden_flujo_aislado"] = False
@@ -376,7 +402,6 @@ class ChatbotService:
 
         if sender_id not in ChatbotService.user_contexts:
             ChatbotService.user_contexts[sender_id] = {}
-
         if cuenta_id not in ChatbotService.user_contexts[sender_id]:
             ChatbotService.user_contexts[sender_id][cuenta_id] = {
                 "productos": [],
@@ -395,8 +420,9 @@ class ChatbotService:
         context = ChatbotService.user_contexts[sender_id][cuenta_id]
         logging.info(f"Contexto inicial para sender_id {sender_id}, cuenta_id {cuenta_id}: {context}")
 
-        if context.get("orden_flujo_aislado"):
+        while context.get("orden_flujo_aislado"):
             if context.get("fase_actual") == "iniciar_orden":
+                logging.info("Fase: iniciar_orden")
                 context["fase_actual"] = "recolectar_producto"
                 response_text = "Para empezar, ¿qué producto deseas ordenar?"
                 ChatbotService.start_order_timer(sender_id, cuenta_id, db)
@@ -431,11 +457,8 @@ class ChatbotService:
                     context["ciudad"] = ciudad_detectada.capitalize()
                     context["fase_actual"] = "recolectar_direccion"
                     return {"respuesta": "Gracias. ¿Podrías proporcionarme tu dirección? (Este dato es opcional)"}
-                elif any(keyword in sanitized_question for keyword in ["direccion", "email"]):
-                    context["fase_actual"] = "recolectar_direccion"
-                    return {"respuesta": "Entendido. ¿Podrías proporcionarme tu dirección? (Este dato es opcional)"}
                 else:
-                    await asyncio.sleep(90)
+                    logging.info("No se detectó ciudad, esperando más información")
                     return {"respuesta": "No pude detectar la ciudad. Por favor, indícame la ciudad donde deseas recibir el pedido o continua proporcionando tu dirección o email."}
 
             if context.get("fase_actual") == "recolectar_direccion":
@@ -453,25 +476,20 @@ class ChatbotService:
                 if "si" in sanitized_question.lower():
                     context["fase_actual"] = "finalizar_orden"
                     return await ChatbotService.create_order_from_context(sender_id, cuenta_id, db, context)
-                elif "no" in sanitized_question.lower():
-                    context["fase_actual"] = "recolectar_producto"
-                    return {"respuesta": "Entiendo. Por favor, indícame nuevamente el producto y la cantidad."}
+                elif any(phrase in sanitized_question.lower() for phrase in no_order_intent_phrases):
+                    context["fase_actual"] = "finalizar_orden"
+                    return await ChatbotService.create_order_from_context(sender_id, cuenta_id, db, context)
                 else:
                     return {"respuesta": "¿Deseas confirmar estos datos para proceder con la orden? Responde 'Sí' o 'No'."}
 
             if context.get("fase_actual") == "finalizar_orden":
                 return await ChatbotService.create_order_from_context(sender_id, cuenta_id, db, context)
 
-            if any(phrase in sanitized_question for phrase in no_order_intent_phrases):
-                context["orden_flujo_aislado"] = False
-                context["fase_actual"] = "espera"
-                return {"respuesta": "Entiendo. Podemos hablar de cualquier otro tema que desees."}
-
-            return {"respuesta": "Por favor, sigamos con el proceso de la orden para completarla."}
-
-        if context.get("fase_actual") == "finalizar_orden":
-            return await ChatbotService.create_order_from_context(sender_id, cuenta_id, db, context)
-
+            logging.info(f"Contexto actualizado para sender_id {sender_id}, cuenta_id {cuenta_id}: {context}")
+ 
+        if context.get("orden_flujo_aislado"):
+            logging.warning("Flujo de orden no completado, revisa el aislamiento del contexto")
+    
         logging.info(f"Contexto actualizado para sender_id {sender_id}: {context}")
         ciudades_disponibles = CRUDCiudad.get_all_cities(db)
         ciudades_nombres = [ciudad.nombre.lower() for ciudad in ciudades_disponibles]
