@@ -669,6 +669,11 @@ class ChatbotService:
         
         if context.get("fecha_inicio_orden") is None:
             context["fecha_inicio_orden"] = datetime.now()
+        
+        if "orden_flujo_aislado" not in context:
+            context["orden_flujo_aislado"] = False
+
+        
 
         telefono = context.get("telefono")
         if not telefono:
