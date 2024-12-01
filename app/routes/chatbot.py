@@ -387,7 +387,15 @@ class ChatbotService:
                 "fase_actual": "iniciar_orden" if hacer_order else "espera",
                 "orden_flujo_aislado": hacer_order,
                 "fecha_inicio_orden": datetime.now()
+
             }
+
+            if "orden_flujo_aislado" not in context:
+                    context["orden_flujo_aislado"] = hacer_order
+            if "fase_actual" not in context:
+                    context["fase_actual"] = "iniciar_orden" if hacer_order else "espera"
+                    
+                        
 
         context = ChatbotService.user_contexts[sender_id][cuenta_id]
         logging.info(f"Contexto inicial para sender_id {sender_id}, cuenta_id {cuenta_id}: {context}")
@@ -471,8 +479,6 @@ class ChatbotService:
                     logging.info(cancel_text)
                     del ChatbotService.user_contexts[sender_id][cuenta_id]
                     return {"respuesta": cancel_text}
-
-        # Si todos los datos están presentes
         await ChatbotService.create_order_from_context(sender_id, cuenta_id, db, context)
 
 
@@ -656,7 +662,7 @@ class ChatbotService:
         return productos
 
 
-    staticmethod
+    @staticmethod
     async def create_order_from_context(sender_id: str, cuenta_id: int, db: Session, context: dict):
         if not context or not context.get("productos"):
             return {"respuesta": "No hay productos en tu orden. Por favor, agrega productos antes de confirmar."}
