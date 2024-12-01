@@ -363,17 +363,15 @@ class ChatbotService:
         if any(phrase in sanitized_question for phrase in order_intent_phrases):
             logging.info("Intención detectada: hacer una orden")
             hacer_order = True
-        if any(phrase in sanitized_question for phrase in no_order_intent_phrases):
+        elif any(phrase in sanitized_question for phrase in no_order_intent_phrases):
             logging.info("Intención detectada: no hacer una orden")
             hacer_order = False
-            context = ChatbotService.user_contexts.get(sender_id, {}).get(cuenta_id, {})
-            context["orden_flujo_aislado"] = False
-            context["fase_actual"] = "espera"
-            return {"respuesta": "Entiendo. Podemos hablar de cualquier otro tema que desees."}
 
         if sender_id not in ChatbotService.user_contexts:
             ChatbotService.user_contexts[sender_id] = {}
+
         if cuenta_id not in ChatbotService.user_contexts[sender_id]:
+            # Inicializa contexto si es la primera vez que se recibe un mensaje para este usuario
             ChatbotService.user_contexts[sender_id][cuenta_id] = {
                 "productos": [],
                 "telefono": None,
@@ -387,18 +385,12 @@ class ChatbotService:
                 "fase_actual": "iniciar_orden" if hacer_order else "espera",
                 "orden_flujo_aislado": hacer_order,
                 "fecha_inicio_orden": datetime.now()
-
             }
-
-            if "orden_flujo_aislado" not in context:
-                    context["orden_flujo_aislado"] = hacer_order
-            if "fase_actual" not in context:
-                    context["fase_actual"] = "iniciar_orden" if hacer_order else "espera"
-                    
-                        
 
         context = ChatbotService.user_contexts[sender_id][cuenta_id]
         logging.info(f"Contexto inicial para sender_id {sender_id}, cuenta_id {cuenta_id}: {context}")
+
+        # Procesamiento de productos
         productos = ChatbotService.extract_product_and_quantity(sanitized_question, db)
         if productos:
             for producto_info in productos:
@@ -406,6 +398,7 @@ class ChatbotService:
                 cantidad = producto_info.get("cantidad", 1)
                 ChatbotService.update_context(sender_id, cuenta_id, producto, cantidad)
 
+        # Flujo si se va a realizar un pedido
         if hacer_order:
             context["orden_flujo_aislado"] = True
             response_text = (
@@ -418,6 +411,7 @@ class ChatbotService:
             logging.info(response_text)
             return {"respuesta": response_text}
 
+        # Manejo de flujo aislado
         if context["orden_flujo_aislado"]:
             ciudad = ChatbotService.extract_city_from_text(sanitized_question, db)
             if ciudad:
@@ -429,6 +423,7 @@ class ChatbotService:
                 del ChatbotService.user_contexts[sender_id][cuenta_id]
                 return {"respuesta": cancel_text}
 
+            # Procesar dirección y teléfono
             direccion = ChatbotService.extract_address_from_text(sanitized_question)
             if direccion:
                 context["direccion"] = direccion
@@ -439,36 +434,35 @@ class ChatbotService:
                 context["telefono"] = telefono
                 logging.info(f"Teléfono detectado: {telefono}")
 
+            # Verificar si falta información para completar el pedido
             if context.get("telefono") and context.get("direccion") and context.get("ciudad") and context.get("productos"):
                 await ChatbotService.create_order_from_context(sender_id, cuenta_id, db, context)
+            else:
+                datos_faltantes = []
+                if not context.get("telefono"):
+                    datos_faltantes.append("número de teléfono")
+                if not context.get("direccion"):
+                    datos_faltantes.append("dirección con número de casa")
+                if not context.get("ciudad"):
+                    datos_faltantes.append("ciudad")
+                if not context.get("productos"):
+                    datos_faltantes.append("número de cajas que necesitas")
 
-        if context.get("orden_flujo_aislado"):
-            datos_faltantes = []
-            if not context.get("telefono"):
-                datos_faltantes.append("número de teléfono")
-            if not context.get("direccion"):
-                datos_faltantes.append("dirección con número de casa")
-            if not context.get("ciudad"):
-                datos_faltantes.append("ciudad")
-            if not context.get("productos"):
-                datos_faltantes.append("número de cajas que necesitas")
+                if datos_faltantes:
+                    logging.info(f"Datos faltantes: {datos_faltantes}")
+                    context["fase_actual"] = "espera_datos_faltantes"
 
-            if datos_faltantes:
-                logging.info(f"Datos faltantes: {datos_faltantes}")
-                context["fase_actual"] = "espera_datos_faltantes"
+                    await asyncio.sleep(60)
+                    if context["fase_actual"] == "espera_datos_faltantes":
+                        reminder_text = (
+                            "Hola, aún no hemos recibido toda la información. Por favor, proporciona los siguientes datos para continuar:\n"
+                            f"- {', '.join(datos_faltantes)}"
+                        )
+                        logging.info(reminder_text)
+                        return {"respuesta": reminder_text}
 
-                await asyncio.sleep(60)
-                if context["fase_actual"] == "espera_datos_faltantes":
-                    reminder_text = (
-                        "Hola, aún no hemos recibido toda la información. Por favor, proporciona los siguientes datos para continuar:\n"
-                        f"- {', '.join(datos_faltantes)}"
-                    )
-                    logging.info(reminder_text)
-                    return {"respuesta": reminder_text}
-
-                if context.get("telefono"):
+                    if context.get("telefono"):
                         await ChatbotService.create_order_from_context(sender_id, cuenta_id, db, context)
-                
 
                 await asyncio.sleep(60)
                 if not context.get("telefono"):
@@ -479,6 +473,8 @@ class ChatbotService:
                     logging.info(cancel_text)
                     del ChatbotService.user_contexts[sender_id][cuenta_id]
                     return {"respuesta": cancel_text}
+
+
         await ChatbotService.create_order_from_context(sender_id, cuenta_id, db, context)
 
 
@@ -672,8 +668,6 @@ class ChatbotService:
         
         if "orden_flujo_aislado" not in context:
             context["orden_flujo_aislado"] = False
-
-        
 
         telefono = context.get("telefono")
         if not telefono:
