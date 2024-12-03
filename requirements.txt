@@ -22,4 +22,5 @@ openpyxl
 cachetools
 redis
 unidecode
-spacy[es] 
+spacy==3.6.0
+https://github.com/explosion/spacy-models/releases/download/es_core_news_sm-3.6.0/es_core_news_sm-3.6.0-py3-none-any.whl
