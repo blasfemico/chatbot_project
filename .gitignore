@@ -169,3 +169,6 @@ cython_debug/
 pycache/
 __pycache__/
 __pycache__
+
+
+stanza_resources/

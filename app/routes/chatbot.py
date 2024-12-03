@@ -31,6 +31,7 @@ import asyncio
 import stanza
 from threading import Lock
 import time
+from stanza import DownloadMethod
 
 cache = TTLCache(maxsize=100, ttl=3600)
 logging.basicConfig(level=logging.INFO)
@@ -297,55 +298,80 @@ class ChatbotService:
         ]
 
         return {"respuesta": productos_info}
+    
+
+    MODEL_DIR = "./stanza_resources"
+    if not os.path.exists(MODEL_DIR):
+        os.makedirs(MODEL_DIR)
+
+    stanza.download('es', model_dir=MODEL_DIR)  
+    nlp = stanza.Pipeline(
+        'es', 
+        model_dir=MODEL_DIR, 
+        processors='tokenize,ner', 
+        download_method=DownloadMethod.REUSE_RESOURCES,
+        quiet=True
+    )
 
     @staticmethod
     def extract_address_from_text(message_text, sender_id, cuenta_id, db):
-        stanza.download('es')  
-        nlp = stanza.Pipeline('es', processors='tokenize,ner', quiet=True) 
+        message_text = re.sub(r'[^\w\sáéíóúüñ#,-]', '', message_text.lower())
+        message_text = re.sub(r'([a-záéíóúüñ]+)(\d+)', r'\1 \2', message_text) 
 
-        # Procesar el texto con stanza
-        doc = nlp(message_text)
-
-        # Patrones de direcciones
         direccion_patterns = [
-            r'\b(?:calle|avenida|avda|av|paseo|ps|plaza|plz|carrer|cr|camino|cm|carretera|ctra)\s+\w+(?:\s+\w+)*\s+\d+',
-            r'\b\d{1,5}\s+\w+(?:\s+\w+)*\b',
-            r'\b\w+(?:\s+\w+)*,\s*\d{4,5}\b',
+            r'\b(?:calle|avenida|avda|av|paseo|ps|plaza|plz|carrer|cr|camino|cm|carretera|ctra)\s*[\wáéíóúüñ]*(?:\s+[\wáéíóúüñ]*)*\s+\d+',
+            r'\b\d{1,5}\s*(?:calle|avenida|avda|av|paseo|ps|plaza|plz|carrer|cr|camino|cm|carretera|ctra)\s*[\wáéíóúüñ]*(?:\s+[\wáéíóúüñ]*)*\b',
+            r'\b[\wáéíóúüñ]*(?:\s*[\wáéíóúüñ]*)*,?\s*\d{4,5}\b',
+            r'\b(?:cll|av|cda|pt|cam|ct|pas|crt)\s*[\wáéíóúüñ]*(?:\s+[\wáéíóúüñ]*)*\s*\d+\b', 
+            r'\b[\wáéíóúüñ]*\s*#?\d+(?:\-\d+)?\b',
+            r'\b\d+\s*[\wáéíóúüñ]*(?:\s+[\wáéíóúüñ]*)*\b',  
+            r'\b[\wáéíóúüñ]*(?:\s*[\wáéíóúüñ]*)*[\.,]?\s*\d+\b',  
+            r'\b[a-záéíóúüñ]+\d+\b'  
         ]
 
-        # Obtener nombres de ciudades y productos
         ciudades = [ciudad[0].lower() for ciudad in db.query(Ciudad.nombre).all()]
         productos = [producto[0].lower() for producto in db.query(Producto.nombre).all()]
 
-        # Buscar coincidencias con los patrones de direcciones
-        for pattern in direccion_patterns:
-            match = re.search(pattern, message_text, re.IGNORECASE)
-            if match:
-                direccion = match.group(0).strip()
-                if not any(keyword in direccion.lower() for keyword in ["producto", "ciudad", "caja"]) and \
-                   not any(ciudad in direccion.lower() for ciudad in ciudades) and \
-                   not any(producto in direccion.lower() for producto in productos):
-                    if sender_id not in ChatbotService.user_contexts:
-                        ChatbotService.user_contexts[sender_id] = {}
-                    if cuenta_id not in ChatbotService.user_contexts[sender_id]:
-                        ChatbotService.user_contexts[sender_id][cuenta_id] = {}
-                    ChatbotService.user_contexts[sender_id][cuenta_id]["direccion"] = direccion
-                    return direccion
+        palabras_prohibidas = [
+            "caja", "producto", "unidad", "botella", "tableta", "paquete", "kilogramo", "litro",
+            "distrito", "barrio", "municipio", "región", "sector", "zona", "pueblo"
+        ]
+        palabras_prohibidas.extend(ciudades)
+        palabras_prohibidas.extend(productos)
 
-        # Procesar entidades reconocidas con Stanza
+        doc = ChatbotService.nlp(message_text)
+        direccion = None
         for sentence in doc.sentences:
             for ent in sentence.ents:
                 if ent.type == "LOC" and \
-                   not any(ciudad in ent.text.lower() for ciudad in ciudades) and \
-                   not any(producto in ent.text.lower() for producto in productos):
-                    if sender_id not in ChatbotService.user_contexts:
-                        ChatbotService.user_contexts[sender_id] = {}
-                    if cuenta_id not in ChatbotService.user_contexts[sender_id]:
-                        ChatbotService.user_contexts[sender_id][cuenta_id] = {}
-                    ChatbotService.user_contexts[sender_id][cuenta_id]["direccion"] = ent.text
-                    return ent.text
+                not any(palabra in ent.text.lower() for palabra in palabras_prohibidas):
+                    direccion = ent.text.strip()
+                    print(f"Direccion en funcion extract_address_from_text1: {direccion}")
+                    break
+            if direccion:
+                break
+        if not direccion:
+            for pattern in direccion_patterns:
+                match = re.search(pattern, message_text, re.IGNORECASE)
+                if match:
+                    posible_direccion = match.group(0).strip()
+                    if not any(palabra in posible_direccion.lower() for palabra in palabras_prohibidas):
+                        direccion = posible_direccion
+                        print(f"Direccion en funcion extract_address_from_text2: {direccion}")
+                        break
+        
+        print(f"Direccion en funcion extract_address_from_text3: {direccion}")
+        if direccion:
+            if sender_id not in ChatbotService.user_contexts:
+                ChatbotService.user_contexts[sender_id] = {}
+            if cuenta_id not in ChatbotService.user_contexts[sender_id]:
+                ChatbotService.user_contexts[sender_id][cuenta_id] = {}
+
+            ChatbotService.user_contexts[sender_id][cuenta_id]["direccion"] = direccion
+            return direccion
 
         return None
+
 
 
 
@@ -654,10 +680,6 @@ class ChatbotService:
         logging.info(f"Productos detectados: {productos_detectados}")
         return productos_detectados
 
-
-
-
-
     @staticmethod
     def load_product_embeddings(db: Session):
         """
@@ -674,7 +696,6 @@ class ChatbotService:
         ChatbotService.product_embeddings = dict(zip(nombres_productos, embeddings))
         logging.info(f"Embeddings de productos cargados: {list(ChatbotService.product_embeddings.keys())}")
 
-
     @staticmethod
     def get_product_list(db: Session) -> list:
         if not ChatbotService.product_list_cache:
@@ -685,7 +706,6 @@ class ChatbotService:
     @staticmethod
     def clear_product_cache():
         ChatbotService.product_list_cache = None 
-
 
     @staticmethod
     def cache_response(question, response):
@@ -698,7 +718,6 @@ class ChatbotService:
             return json.loads(cached_response)
         return None
 
-
     @staticmethod
     def get_response(question):
         cached_response = ChatbotService.get_cached_response(question)
@@ -708,10 +727,6 @@ class ChatbotService:
             response = client.chat.completions.create(...)  
             ChatbotService.cache_response(question, response)
             return response
-
-
-
-
 
 def get_delivery_day_response():
     """Determina el día de entrega basado en el día de la semana."""
@@ -940,7 +955,7 @@ class FacebookService:
                         
                         ChatbotService.user_contexts[sender_id][cuenta_id] = context
 
-                        await asyncio.sleep(180)
+                        await asyncio.sleep(90)
                         datos_faltantes = []
                         if not context.get("telefono"):
                             datos_faltantes.append("número de teléfono")
@@ -961,7 +976,7 @@ class FacebookService:
                             context["mensaje_faltante_enviado"] = True
                             ChatbotService.user_contexts[sender_id][cuenta_id] = context
 
-                        await asyncio.sleep(120)
+                        await asyncio.sleep(10)
                         if context.get("telefono") and not context.get("productos") and context["orden_flujo_aislado"]:
                             cancel_text = (
                                 "Lamentablemente, no hemos recibido información suficiente sobre los productos. "
@@ -1010,14 +1025,19 @@ class FacebookService:
 
                                 ChatbotService.user_contexts[sender_id][cuenta_id] = context
 
-                        if context.get("orden_creada"):
-                            logging.info("Reiniciando valores después de completar la orden.")
-                            for key in ["mensaje_predeterminado_enviado", "mensaje_faltante_enviado", "mensaje_creacion_enviado", "mensaje_creacion_enviado2", "orden_creada", "productos", "telefono", "direccion", "ciudad"]:
-                                context[key] = False
-                            context["fase_actual"] = "espera"
-                            context["orden_flujo_aislado"] = False
-                            context["mensaje_faltante_enviado"] = True
-                            ChatbotService.user_contexts[sender_id][cuenta_id] = context
+                            if context.get("orden_creada"):
+                                logging.info("Reiniciando valores después de completar la orden.")
+                                keys_to_none = ["direccion", "telefono", "ciudad", "productos"]
+                                keys_to_false = ["mensaje_predeterminado_enviado", "mensaje_faltante_enviado", 
+                                                "mensaje_creacion_enviado", "mensaje_creacion_enviado2", 
+                                                "orden_creada", "orden_flujo_aislado"]
+                                for key in keys_to_none:
+                                    context[key] = None 
+                                for key in keys_to_false:
+                                    context[key] = False  
+                                context["fase_actual"] = "espera"
+                                ChatbotService.user_contexts[sender_id][cuenta_id] = context
+
                             print(f'mensaje_faltante_enviado: {context["mensaje_faltante_enviado"]}')
                             print(f'orden_creada: {context["orden_creada"]}')
                             print(f'orden_flujo_aislado: {context["orden_flujo_aislado"]}')
@@ -1037,12 +1057,18 @@ class FacebookService:
                             context["mensaje_faltante_enviado"] = False 
                             ChatbotService.user_contexts[sender_id][cuenta_id] = context
                             
-                        if context.get("orden_creada"):
-                            logging.info("Reiniciando valores después de completar una orden.")
-                            for key in ["mensaje_predeterminado_enviado", "mensaje_faltante_enviado", "mensaje_creacion_enviado", "mensaje_creacion_enviado2", "orden_creada", "productos", "telefono", "direccion", "ciudad"]:
-                                context[key] = False
-                            context["fase_actual"] = "espera"
-                            ChatbotService.user_contexts[sender_id][cuenta_id] = context
+                            if context.get("orden_creada"):
+                                logging.info("Reiniciando valores después de completar la orden.")
+                                keys_to_none = ["direccion", "telefono", "ciudad", "productos"]
+                                keys_to_false = ["mensaje_predeterminado_enviado", "mensaje_faltante_enviado", 
+                                                "mensaje_creacion_enviado", "mensaje_creacion_enviado2", 
+                                                "orden_creada", "orden_flujo_aislado"]
+                                for key in keys_to_none:
+                                    context[key] = None 
+                                for key in keys_to_false:
+                                    context[key] = False  
+                                context["fase_actual"] = "espera"
+                                ChatbotService.user_contexts[sender_id][cuenta_id] = context
                             return
                         
                         else:
