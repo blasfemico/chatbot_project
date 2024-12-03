@@ -300,8 +300,8 @@ class ChatbotService:
 
     @staticmethod
     def extract_address_from_text(message_text, sender_id, cuenta_id, db):
-        stanza.download('es', quiet=True)  # Descarga el modelo de español si no está disponible
-        nlp = stanza.Pipeline('es', processors='tokenize,ner', quiet=True)  # Solo procesadores necesarios
+        stanza.download('es')  
+        nlp = stanza.Pipeline('es', processors='tokenize,ner', quiet=True) 
 
         # Procesar el texto con stanza
         doc = nlp(message_text)
