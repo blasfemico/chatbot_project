@@ -1,4 +1,4 @@
-const backendUrl = "https://kokomibot.up.railway.app/";
+const backendUrl = "https://kokomibot.up.railway.app/"
 
 async function loadSection(section) {
     let content = document.getElementById("content");
@@ -383,7 +383,7 @@ async function fetchOrders() {
         const orders = await response.json();
 
         document.getElementById("orders-list").innerHTML = orders.map(order => {
-            let productos = Array.isArray(order.producto) ? order.producto : [];
+            let productos = Array.isArray(order.producto) ? order.producto : JSON.parse(order.producto || "[]");
             const productosString = productos.map(p => `${p.cantidad} de ${p.producto}`).join("<br>");
 
             return `
@@ -423,7 +423,7 @@ async function fetchOrderById() {
         }
 
         const order = await response.json();
-        let productos = Array.isArray(order.producto) ? order.producto : [];
+        let productos = Array.isArray(order.producto) ? order.producto : JSON.parse(order.producto || "[]");
         const productosString = productos.map(p => `<li>${p.cantidad} de ${p.producto}</li>`).join("");
 
         document.getElementById("single-order").innerHTML = `
@@ -477,6 +477,27 @@ async function exportOrdersToExcel(event) {
         document.getElementById("excel-download-link").innerHTML = "<p>Error al exportar el archivo.</p>";
     }
 }
+
+async function deleteAllOrders() {
+    try {
+        const confirmation = confirm("¿Estás seguro de que deseas eliminar todas las órdenes?");
+        if (!confirmation) return;
+
+        const response = await fetch(`${backendUrl}orders/delete_all`, { method: 'DELETE' });
+        if (response.ok) {
+            alert("Todas las órdenes han sido eliminadas con éxito.");
+            fetchOrders(); // Actualiza la lista de órdenes después de eliminar todas.
+        } else {
+            const errorData = await response.json();
+            throw new Error(`Error al eliminar todas las órdenes: ${errorData.detail || response.status}`);
+        }
+    } catch (error) {
+        console.error("Error al eliminar todas las órdenes:", error);
+        alert("No se pudieron eliminar todas las órdenes. Verifica la consola para más detalles.");
+    }
+}
+
+
 
 
 async function askChatbot(event) {

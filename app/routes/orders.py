@@ -195,7 +195,7 @@ async def get_all_orders(skip: int = 0, limit: int = 1000, db: Session = Depends
             "email": order["email"] or "N/A",
             "address": order["address"] or "N/A",
             "ciudad": order["ciudad"] or "N/A",
-            "producto": json.loads(order["producto"]) if order["producto"] else [], 
+            "producto": order["producto"] if isinstance(order["producto"], list) else json.loads(order["producto"]) if order["producto"] else [],
             "cantidad_cajas": order["cantidad_cajas"] or 1,
             "nombre": order["nombre"] or "N/A",
             "apellido": order["apellido"] or "N/A",
@@ -209,3 +209,12 @@ async def get_all_orders(skip: int = 0, limit: int = 1000, db: Session = Depends
 async def export_orders_to_excel_endpoint(db: Session = Depends(get_db), file_path: Optional[str] = None):
     file_path = await OrderService.export_orders_to_excel(db, file_path)
     return FileResponse(file_path, filename=os.path.basename(file_path))
+
+@router.delete("/orders/delete_all")
+async def delete_all_orders(db: Session = Depends(get_db)):
+    try:
+        CRUDOrder().delete_all_orders(db)
+        return {"message": "Todas las órdenes han sido eliminadas correctamente."}
+    except Exception as e:
+        logging.error(f"Error al eliminar todas las órdenes: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error al eliminar todas las órdenes.")

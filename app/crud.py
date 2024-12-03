@@ -302,22 +302,22 @@ class CRUDOrder:
             orders = []
             for order in orders_query.fetchall():
                 try:
-                    producto = self.deserialize_products(order["producto"]) if order["producto"] else []
+                    producto = self.deserialize_products(order[4]) if order[4] else []
                 except json.JSONDecodeError:
-                    logging.error(f"Error al deserializar producto: {order['producto']}")
+                    logging.error(f"Error al deserializar producto: {order[4]}")
                     producto = []
 
                 orders.append({
-                    "id": order["id"],
-                    "phone": order["phone"] or "N/A",
-                    "email": order["email"] or "N/A",
-                    "address": order["address"] or "N/A",
-                    "ciudad": order["ciudad"] or "N/A",
+                    "id": order[0],  
+                    "phone": order[1] or "N/A", 
+                    "email": order[2] or "N/A",  
+                    "address": order[3] or "N/A",  
+                    "ciudad": order[6] or "N/A",  
                     "producto": producto,
-                    "cantidad_cajas": order["cantidad_cajas"] or "0",
-                    "nombre": order["nombre"] or "N/A",
-                    "apellido": order["apellido"] or "N/A",
-                    "ad_id": order["ad_id"] or "N/A",
+                    "cantidad_cajas": order[5] or "0", 
+                    "nombre": order[7] or "N/A",  
+                    "apellido": order[8] or "N/A", 
+                    "ad_id": order[9] or "N/A",  
                 })
 
             return orders
@@ -325,6 +325,21 @@ class CRUDOrder:
         except Exception as e:
             logging.error(f"Error al obtener las órdenes: {str(e)}")
             raise HTTPException(status_code=500, detail="Error al obtener las órdenes.")
+        
+    def delete_all_orders(self, db: Session) -> dict:
+        """
+        Elimina todas las órdenes de la base de datos.
+        """
+        try:
+            logging.info("Eliminando todas las órdenes.")
+            deleted_count = db.query(Order).delete()  
+            db.commit()
+            logging.info(f"Se eliminaron {deleted_count} órdenes.")
+            return {"message": f"Se eliminaron {deleted_count} órdenes correctamente."}
+        except Exception as e:
+            logging.error(f"Error al eliminar todas las órdenes: {str(e)}")
+            db.rollback()
+            raise HTTPException(status_code=500, detail="Error al eliminar todas las órdenes.")
 
 
 
