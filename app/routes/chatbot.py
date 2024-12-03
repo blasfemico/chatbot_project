@@ -316,19 +316,17 @@ class ChatbotService:
     @staticmethod
     def extract_address_from_text(message_text, sender_id, cuenta_id, db):
         message_text = re.sub(r'[^\w\sáéíóúüñ#,-]', '', message_text.lower())
-        message_text = re.sub(r'([a-záéíóúüñ]+)(\d+)', r'\1 \2', message_text) 
-
+        message_text = re.sub(r'([a-záéíóúüñ]+)(\d+)', r'\1 \2', message_text)
         direccion_patterns = [
             r'\b(?:calle|avenida|avda|av|paseo|ps|plaza|plz|carrer|cr|camino|cm|carretera|ctra)\s*[\wáéíóúüñ]*(?:\s+[\wáéíóúüñ]*)*\s+\d+',
             r'\b\d{1,5}\s*(?:calle|avenida|avda|av|paseo|ps|plaza|plz|carrer|cr|camino|cm|carretera|ctra)\s*[\wáéíóúüñ]*(?:\s+[\wáéíóúüñ]*)*\b',
             r'\b[\wáéíóúüñ]*(?:\s*[\wáéíóúüñ]*)*,?\s*\d{4,5}\b',
-            r'\b(?:cll|av|cda|pt|cam|ct|pas|crt)\s*[\wáéíóúüñ]*(?:\s+[\wáéíóúüñ]*)*\s*\d+\b', 
+            r'\b(?:cll|av|cda|pt|cam|ct|pas|crt)\s*[\wáéíóúüñ]*(?:\s+[\wáéíóúüñ]*)*\s*\d+\b',
             r'\b[\wáéíóúüñ]*\s*#?\d+(?:\-\d+)?\b',
-            r'\b\d+\s*[\wáéíóúüñ]*(?:\s+[\wáéíóúüñ]*)*\b',  
-            r'\b[\wáéíóúüñ]*(?:\s*[\wáéíóúüñ]*)*[\.,]?\s*\d+\b',  
-            r'\b[a-záéíóúüñ]+\d+\b'  
+            r'\b\d+\s*[\wáéíóúüñ]*(?:\s+[\wáéíóúüñ]*)*\b',
+            r'\b[\wáéíóúüñ]*(?:\s*[\wáéíóúüñ]*)*[\.,]?\s*\d+\b',
+            r'\b[a-záéíóúüñ]+\d+\b'
         ]
-
         ciudades = [ciudad[0].lower() for ciudad in db.query(Ciudad.nombre).all()]
         productos = [producto[0].lower() for producto in db.query(Producto.nombre).all()]
 
@@ -338,13 +336,14 @@ class ChatbotService:
         ]
         palabras_prohibidas.extend(ciudades)
         palabras_prohibidas.extend(productos)
-
+        telefono_detectado = ChatbotService.extract_phone_number(message_text)
         doc = ChatbotService.nlp(message_text)
         direccion = None
         for sentence in doc.sentences:
             for ent in sentence.ents:
                 if ent.type == "LOC" and \
-                not any(palabra in ent.text.lower() for palabra in palabras_prohibidas):
+                not any(palabra in ent.text.lower() for palabra in palabras_prohibidas) and \
+                (not telefono_detectado or telefono_detectado not in ent.text):
                     direccion = ent.text.strip()
                     print(f"Direccion en funcion extract_address_from_text1: {direccion}")
                     break
@@ -355,11 +354,12 @@ class ChatbotService:
                 match = re.search(pattern, message_text, re.IGNORECASE)
                 if match:
                     posible_direccion = match.group(0).strip()
-                    if not any(palabra in posible_direccion.lower() for palabra in palabras_prohibidas):
+                    if not any(palabra in posible_direccion.lower() for palabra in palabras_prohibidas) and \
+                    (not telefono_detectado or telefono_detectado not in posible_direccion):
                         direccion = posible_direccion
                         print(f"Direccion en funcion extract_address_from_text2: {direccion}")
                         break
-        
+
         print(f"Direccion en funcion extract_address_from_text3: {direccion}")
         if direccion:
             if sender_id not in ChatbotService.user_contexts:
@@ -977,6 +977,16 @@ class FacebookService:
                             ChatbotService.user_contexts[sender_id][cuenta_id] = context
 
                         await asyncio.sleep(10)
+
+                        if not context.get("telefono") and context["orden_flujo_aislado"]:
+                            cancel_text = (
+                                "No podemos procesar tu pedido porque falta el número de teléfono. "
+                                "Por favor, proporciona toda la información necesaria para continuar."
+                            )
+                            await FacebookService.send_text_message(sender_id, cancel_text, api_key)
+                            logging.info("Pedido rechazado por falta de número de teléfono.")
+                            context["orden_creada"] = True  
+                            
                         if context.get("telefono") and not context.get("productos") and context["orden_flujo_aislado"]:
                             cancel_text = (
                                 "Lamentablemente, no hemos recibido información suficiente sobre los productos. "
