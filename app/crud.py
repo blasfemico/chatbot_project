@@ -209,11 +209,17 @@ class CRUDOrder:
     
     def create_order(self, db: Session, order: schemas.OrderCreate, nombre: str, apellido: str):
         try:
-            if isinstance(order.producto, str):
+            if isinstance(order.producto, list):
+                order.producto = [
+                    p.dict() if hasattr(p, "dict") else p
+                    for p in order.producto
+                ]
+            elif isinstance(order.producto, str):
                 try:
                     order.producto = json.loads(order.producto)
                 except json.JSONDecodeError:
                     raise ValueError("El campo 'producto' debe ser una lista válida o una cadena JSON correcta.")
+            
             new_order = Order(
                 phone=order.phone,
                 email=order.email or "N/A",
@@ -236,6 +242,7 @@ class CRUDOrder:
             db.rollback()
             logging.error(f"Error al crear la orden: {e}")
             raise HTTPException(status_code=500, detail="Error al crear la orden.")
+
 
 
 
