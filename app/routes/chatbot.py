@@ -28,7 +28,7 @@ import logging
 from cachetools import TTLCache
 from unidecode import unidecode  
 import asyncio
-import spacy
+import stanza
 from threading import Lock
 import time
 
@@ -42,8 +42,6 @@ crud_faq = CRUDFaq(model)
 VERIFY_TOKEN = "chatbot_project"
 API_KEYS_FILE = "api_keys.json" 
 processed_message_ids = set()
-reminder_delay = 60
-nlp = spacy.load("es_core_news_sm")
 recent_messages = {}
 recent_messages_lock = Lock()
 
@@ -300,20 +298,26 @@ class ChatbotService:
 
         return {"respuesta": productos_info}
 
-
     @staticmethod
     def extract_address_from_text(message_text, sender_id, cuenta_id, db):
-        nlp = spacy.load("es_core_news_sm")
+        stanza.download('es', quiet=True)  # Descarga el modelo de español si no está disponible
+        nlp = stanza.Pipeline('es', processors='tokenize,ner', quiet=True)  # Solo procesadores necesarios
+
+        # Procesar el texto con stanza
         doc = nlp(message_text)
+
+        # Patrones de direcciones
         direccion_patterns = [
             r'\b(?:calle|avenida|avda|av|paseo|ps|plaza|plz|carrer|cr|camino|cm|carretera|ctra)\s+\w+(?:\s+\w+)*\s+\d+',
             r'\b\d{1,5}\s+\w+(?:\s+\w+)*\b',
             r'\b\w+(?:\s+\w+)*,\s*\d{4,5}\b',
         ]
 
+        # Obtener nombres de ciudades y productos
         ciudades = [ciudad[0].lower() for ciudad in db.query(Ciudad.nombre).all()]
         productos = [producto[0].lower() for producto in db.query(Producto.nombre).all()]
 
+        # Buscar coincidencias con los patrones de direcciones
         for pattern in direccion_patterns:
             match = re.search(pattern, message_text, re.IGNORECASE)
             if match:
@@ -321,16 +325,28 @@ class ChatbotService:
                 if not any(keyword in direccion.lower() for keyword in ["producto", "ciudad", "caja"]) and \
                    not any(ciudad in direccion.lower() for ciudad in ciudades) and \
                    not any(producto in direccion.lower() for producto in productos):
+                    if sender_id not in ChatbotService.user_contexts:
+                        ChatbotService.user_contexts[sender_id] = {}
+                    if cuenta_id not in ChatbotService.user_contexts[sender_id]:
+                        ChatbotService.user_contexts[sender_id][cuenta_id] = {}
                     ChatbotService.user_contexts[sender_id][cuenta_id]["direccion"] = direccion
                     return direccion
-                    
-        for ent in doc.ents:
-            if ent.label_ == "LOC" and \
-               not any(ciudad in ent.text.lower() for ciudad in ciudades) and \
-               not any(producto in ent.text.lower() for producto in productos):
-                ChatbotService.user_contexts[sender_id][cuenta_id]["direccion"] = ent.text
-                return ent.text
+
+        # Procesar entidades reconocidas con Stanza
+        for sentence in doc.sentences:
+            for ent in sentence.ents:
+                if ent.type == "LOC" and \
+                   not any(ciudad in ent.text.lower() for ciudad in ciudades) and \
+                   not any(producto in ent.text.lower() for producto in productos):
+                    if sender_id not in ChatbotService.user_contexts:
+                        ChatbotService.user_contexts[sender_id] = {}
+                    if cuenta_id not in ChatbotService.user_contexts[sender_id]:
+                        ChatbotService.user_contexts[sender_id][cuenta_id] = {}
+                    ChatbotService.user_contexts[sender_id][cuenta_id]["direccion"] = ent.text
+                    return ent.text
+
         return None
+
 
 
         
