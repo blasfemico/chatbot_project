@@ -242,12 +242,13 @@ async function deleteCiudad(ciudadId) {
 }
 
 async function fetchProductos() {
-    const cuentaId = document.getElementById("cuentaId").value;
-
-    if (!cuentaId) {
+    const cuentaIdInput = document.getElementById("cuentaId");
+    if (!cuentaIdInput || !cuentaIdInput.value.trim()) {
         alert("Por favor, ingresa el ID de la cuenta.");
         return;
     }
+
+    const cuentaId = cuentaIdInput.value.trim();
 
     try {
         const response = await fetch(`${backendUrl}accounts/${cuentaId}/products`);
@@ -262,18 +263,13 @@ async function fetchProductos() {
             return;
         }
 
-        // Renderizar productos
+        // Renderiza los productos con sus botones de eliminación
         document.getElementById("productos-list").innerHTML = productos
-            .map(producto => {
-                if (!producto.id) {
-                    console.error("Producto sin ID encontrado:", producto);
-                    return `<p>Error: Producto sin ID no se puede eliminar.</p>`;
-                }
-                return `
-                    <p>${producto.cantidad} caja(s) de ${producto.producto} - Precio: ${producto.precio}
-                        <button onclick="deleteProducto(${producto.id})">Eliminar</button>
-                    </p>`;
-            })
+            .map(producto => `
+                <p>${producto.cantidad} caja(s) de ${producto.producto} - Precio: ${producto.precio}
+                    <button onclick="deleteProducto(${producto.id})">Eliminar</button>
+                </p>
+            `)
             .join("");
     } catch (error) {
         console.error("Error al cargar productos:", error);
@@ -305,15 +301,16 @@ async function createProductos(event) {
 
 async function deleteProducto(productoId) {
     // Obtén el valor del ID de la cuenta correctamente
-    const cuentaId = document.getElementById("cuentaId").value.trim();
-
-    if (!cuentaId) {
+    const cuentaIdInput = document.getElementById("cuentaId");
+    if (!cuentaIdInput || !cuentaIdInput.value.trim()) {
         alert("Por favor, ingresa el ID de la cuenta.");
         return;
     }
 
+    const cuentaId = cuentaIdInput.value.trim();
+
     try {
-        // Asegúrate de usar el valor y no el elemento HTML completo
+        // Realiza la solicitud DELETE al backend
         const response = await fetch(`${backendUrl}accounts/${cuentaId}/products/${productoId}`, {
             method: 'DELETE',
         });
@@ -330,6 +327,7 @@ async function deleteProducto(productoId) {
         alert("No se pudo eliminar el producto. Verifica la consola para más detalles.");
     }
 }
+
 
 
 

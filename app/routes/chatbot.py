@@ -875,7 +875,7 @@ class FacebookService:
                         
                         ChatbotService.user_contexts[sender_id][cuenta_id] = context
 
-                        await asyncio.sleep(60)
+                        await asyncio.sleep(300)
                         datos_faltantes = []
                         if not context.get("telefono"):
                             datos_faltantes.append("número de teléfono")
@@ -896,7 +896,7 @@ class FacebookService:
                             context["mensaje_faltante_enviado"] = True
                             ChatbotService.user_contexts[sender_id][cuenta_id] = context
 
-                        await asyncio.sleep(30)
+                        await asyncio.sleep(180)
 
                         if not context.get("telefono") and context["orden_flujo_aislado"]:
 
