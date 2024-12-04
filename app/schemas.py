@@ -56,6 +56,7 @@ class OrderUpdate(BaseModel):
 class ProductInput(BaseModel):
     producto: str
     cantidad: int
+    precio: int
 
 class OrderCreate(BaseModel):
     phone: str
@@ -79,8 +80,8 @@ class OrderResponse(BaseModel):
     email: Optional[str]
     address: Optional[str]
     ciudad: Optional[str]
-    producto: Union[str, List[ProductInput]]  
-    cantidad_cajas: Optional[str] = "1"
+    producto: Union[str, List[ProductInput]] 
+    cantidad_cajas: Optional[Union[int, str]] = "1"
     nombre: Optional[str]
     apellido: Optional[str]
     ad_id: Optional[str]

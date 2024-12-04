@@ -802,6 +802,7 @@ class FacebookService:
                     sender_id = event["sender"]["id"]
                     message_text = event["message"].get("text", "").strip()
                     
+
                     user_context = ChatbotService.user_contexts.get(sender_id, {}).get(cuenta_id)
                     if not user_context:
                         user_profile = FacebookService.get_user_profile(sender_id, api_key)
@@ -874,7 +875,7 @@ class FacebookService:
                         
                         ChatbotService.user_contexts[sender_id][cuenta_id] = context
 
-                        await asyncio.sleep(30)
+                        await asyncio.sleep(60)
                         datos_faltantes = []
                         if not context.get("telefono"):
                             datos_faltantes.append("número de teléfono")
@@ -898,6 +899,7 @@ class FacebookService:
                         await asyncio.sleep(30)
 
                         if not context.get("telefono") and context["orden_flujo_aislado"]:
+
                             cancel_text = (
                                 "No podemos procesar tu pedido porque falta el número de teléfono. "
                                 "Por favor, proporciona toda la información necesaria para continuar."
@@ -907,6 +909,7 @@ class FacebookService:
                             context["orden_creada"] = True  
 
                         if context.get("telefono") and not context.get("productos") and context["orden_flujo_aislado"]:
+
                             cancel_text = (
                                 "Lamentablemente, no hemos recibido información suficiente sobre los productos. "
                                 "El pedido no se ha completado."
@@ -916,18 +919,33 @@ class FacebookService:
                             ChatbotService.user_contexts[sender_id][cuenta_id] = context
 
                         elif context.get("telefono") and context.get("direccion") and context.get("ciudad") and context.get("productos") and context["orden_flujo_aislado"]:
+                            print("if con todos los datos")
                             if not context.get("orden_creada"):
                                 print("datos del contexto: ", context)
                                 try:
                                     nombre = context.get("nombre", "Cliente")
                                     apellido = context.get("apellido", "Apellido")
                                     productos = context["productos"]
-                                    cantidad_cajas = sum([p["cantidad"] for p in productos])
                                     ciudad = context.get("ciudad", "N/A")
                                     direccion = context.get("direccion", "N/A")
+                                    cantidad_cajas = sum([p["cantidad"] for p in productos])
                                     telefono = context.get("telefono")
                                     email = context.get("email", "N/A")
-                                    
+
+                                    productos_info = crud_producto.get_productos_by_cuenta(db, cuenta_id)
+
+                                    for producto in productos:
+                                        producto_nombre = f"{producto['producto'].lower()} {producto['cantidad']} cajas"
+                                        producto["precio"] = next(
+                                            (prod['precio'] for prod in productos_info if prod['producto'].lower() == producto_nombre),
+                                            0
+                                        )
+                                    cantidad_cajas = sum([p["cantidad"] for p in productos])
+                                    ChatbotService.user_contexts[sender_id][cuenta_id] = context
+
+                                    print(f'productos: {productos}')
+                                    print(f'cantidad_cajas: {cantidad_cajas}')
+                                
                                     order_data = schemas.OrderCreate(
                                         phone=telefono,
                                         email=email,
@@ -937,26 +955,29 @@ class FacebookService:
                                         ciudad=ciudad,
                                         ad_id=context.get("ad_id", "N/A"),
                                     )
+
                                     crud_order = CRUDOrder()
                                     nueva_orden = crud_order.create_order(db=db, order=order_data, nombre=nombre, apellido=apellido)
+
                                     respuesta = (
                                         f"✅ Su pedido ya quedó registrado:\n"
-                                        f"📦 Productos: {cantidad_cajas} artículos\n"
+                                        f"📦 Sus productos llegarán pronto!\n"
                                         f"📞 Teléfono: {telefono}\n"
                                         f"📍 Ciudad: {ciudad}\n"
                                         "El repartidor se comunicará contigo entre 8 AM y 9 PM para confirmar la entrega. ¡Gracias por tu compra! 😊"
                                     )
                                     await FacebookService.send_text_message(sender_id, respuesta, api_key)
                                     context["orden_creada"] = True
-                                    
+
                                     ChatbotService.user_contexts[sender_id][cuenta_id] = context
                                     print(f'orden_creada: {context["orden_creada"]}')
                                     logging.info(f"Orden creada exitosamente: {nueva_orden}")
-                                    
+
                                 except Exception as e:
                                     logging.error(f"Error al crear la orden: {e}")
 
                         elif context.get("telefono") and context.get("productos") and any(p["cantidad"] > 0 for p in context["productos"]) and context["orden_flujo_aislado"]:
+                            print("if con telefono, productos y cantidad mayor a 0")
                             if not context.get("orden_creada"):
                                 try:
                                     nombre = context.get("nombre", "Cliente")
@@ -968,6 +989,19 @@ class FacebookService:
                                     telefono = context.get("telefono")
                                     email = context.get("email", "N/A")
 
+                                    productos_info = crud_producto.get_productos_by_cuenta(db, cuenta_id)
+                                    for producto in productos:
+                                        producto_nombre = f"{producto['producto'].lower()} {producto['cantidad']} cajas"
+                                        producto["precio"] = next(
+                                            (prod['precio'] for prod in productos_info if prod['producto'].lower() == producto_nombre),
+                                            0
+                                        )
+                                    cantidad_cajas = sum([p["cantidad"] for p in productos])
+                                    ChatbotService.user_contexts[sender_id][cuenta_id] = context
+
+                                    print(f'productos: {productos}')
+                                    print(f'cantidad_cajas: {cantidad_cajas}')
+
                                     order_data = schemas.OrderCreate(
                                         phone=telefono,
                                         email=email,
@@ -977,20 +1011,25 @@ class FacebookService:
                                         ciudad=ciudad,
                                         ad_id=context.get("ad_id", "N/A"),
                                     )
+
+                           
                                     crud_order = CRUDOrder()
                                     nueva_orden = crud_order.create_order(db=db, order=order_data, nombre=nombre, apellido=apellido)
+
+            
                                     respuesta = (
                                         f"✅ Su pedido ya quedó registrado:\n"
-                                        f"📦 tus productos llegaran pronto!\n"
+                                        f"📦 Sus productos llegarán pronto!\n"
                                         f"📞 Teléfono: {telefono}\n"
                                         f"📍 Ciudad: {ciudad}\n"
                                         "El repartidor se comunicará contigo entre 8 AM y 9 PM para confirmar la entrega. ¡Gracias por tu compra! 😊"
                                     )
                                     await FacebookService.send_text_message(sender_id, respuesta, api_key)
                                     context["orden_creada"] = True
+
                                     ChatbotService.user_contexts[sender_id][cuenta_id] = context
-                                    logging.info(f"Orden creada exitosamente: {nueva_orden}")
                                     print(f'orden_creada: {context["orden_creada"]}')
+                                    logging.info(f"Orden creada exitosamente: {nueva_orden}")
 
                                 except Exception as e:
                                     logging.error(f"Error al crear la orden: {e}")
