@@ -304,7 +304,8 @@ async function createProductos(event) {
 }
 
 async function deleteProducto(productoId) {
-    const cuentaId = document.getElementById("cuentaId").value; // Obtener el ID de la cuenta desde el campo
+    // Obtén el valor del ID de la cuenta correctamente
+    const cuentaId = document.getElementById("cuentaId").value.trim();
 
     if (!cuentaId) {
         alert("Por favor, ingresa el ID de la cuenta.");
@@ -312,6 +313,7 @@ async function deleteProducto(productoId) {
     }
 
     try {
+        // Asegúrate de usar el valor y no el elemento HTML completo
         const response = await fetch(`${backendUrl}accounts/${cuentaId}/products/${productoId}`, {
             method: 'DELETE',
         });

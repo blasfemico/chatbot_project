@@ -935,11 +935,12 @@ class FacebookService:
                                     productos_info = crud_producto.get_productos_by_cuenta(db, cuenta_id)
 
                                     for producto in productos:
-                                        producto_nombre = f"{producto['producto'].lower()} {producto['cantidad']} cajas"
+                                        producto_nombre = f"{producto['producto']} ({producto['cantidad']})".lower()
                                         producto["precio"] = next(
                                             (prod['precio'] for prod in productos_info if prod['producto'].lower() == producto_nombre),
-                                            0
+                                            0  
                                         )
+
                                     cantidad_cajas = sum([p["cantidad"] for p in productos])
                                     ChatbotService.user_contexts[sender_id][cuenta_id] = context
 
@@ -990,14 +991,17 @@ class FacebookService:
                                     email = context.get("email", "N/A")
 
                                     productos_info = crud_producto.get_productos_by_cuenta(db, cuenta_id)
+
                                     for producto in productos:
-                                        producto_nombre = f"{producto['producto'].lower()} {producto['cantidad']} cajas"
+                                        producto_nombre = f"{producto['producto']} ({producto['cantidad']})".lower()
                                         producto["precio"] = next(
                                             (prod['precio'] for prod in productos_info if prod['producto'].lower() == producto_nombre),
-                                            0
+                                            0  
                                         )
+
                                     cantidad_cajas = sum([p["cantidad"] for p in productos])
                                     ChatbotService.user_contexts[sender_id][cuenta_id] = context
+
 
                                     print(f'productos: {productos}')
                                     print(f'cantidad_cajas: {cantidad_cajas}')
