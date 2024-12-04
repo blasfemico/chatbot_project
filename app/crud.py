@@ -452,7 +452,12 @@ class CRUDCiudad:
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
-
+    def delete_ciudad(self, db: Session, ciudad_id: int):
+        ciudad = db.query(Ciudad).filter(Ciudad.id == ciudad_id).first()
+        if ciudad:
+            db.delete(ciudad)
+            db.commit()
+        return ciudad
 
     @staticmethod
     def get_all_cities(db: Session):

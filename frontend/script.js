@@ -270,8 +270,8 @@ async function fetchProductos() {
                     return `<p>Error: Producto sin ID no se puede eliminar.</p>`;
                 }
                 return `
-                    <p>${producto.producto} - Precio: ${producto.precio}
-                        <button onclick="deleteProducto(${cuentaId}, ${producto.id})">Eliminar</button>
+                    <p>${producto.cantidad} caja(s) de ${producto.producto} - Precio: ${producto.precio}
+                        <button onclick="deleteProducto(${producto.id})">Eliminar</button>
                     </p>`;
             })
             .join("");
@@ -280,6 +280,7 @@ async function fetchProductos() {
         document.getElementById("productos-list").innerHTML = "<p>Error al cargar productos. Revisa la consola para más detalles.</p>";
     }
 }
+
 
 
 
@@ -303,9 +304,16 @@ async function createProductos(event) {
 }
 
 async function deleteProducto(productoId) {
+    const cuentaId = document.getElementById("cuentaId").value; // Obtener el ID de la cuenta desde el campo
+
+    if (!cuentaId) {
+        alert("Por favor, ingresa el ID de la cuenta.");
+        return;
+    }
+
     try {
         const response = await fetch(`${backendUrl}accounts/${cuentaId}/products/${productoId}`, {
-            method: 'DELETE'
+            method: 'DELETE',
         });
 
         if (response.ok) {
@@ -313,7 +321,7 @@ async function deleteProducto(productoId) {
             fetchProductos(); // Refresca la lista de productos
         } else {
             const errorData = await response.json();
-            throw new Error(`Error al eliminar producto: ${errorData.detail || response.status}`);
+            throw new Error(`Error al eliminar producto: ${errorData.detail || response.statusText}`);
         }
     } catch (error) {
         console.error("Error al eliminar producto:", error);
