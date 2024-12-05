@@ -12,7 +12,6 @@ from app.models import (
 from app.crud import CRUDProduct, FAQCreate, CRUDFaq, CRUDCiudad, CRUDOrder
 from app.schemas import Cuenta as CuentaSchema
 from app.schemas import FAQSchema, FAQUpdate, APIKeyCreate
-from app.routes.orders import OrderService
 from app import schemas
 from app.config import settings
 from openai import OpenAI
@@ -26,12 +25,12 @@ from datetime import datetime, date
 from json import JSONDecodeError
 import logging
 from cachetools import TTLCache
-from unidecode import unidecode  
 import asyncio
 import stanza
 from threading import Lock
 import time
 from stanza import DownloadMethod
+from collections import defaultdict
 
 cache = TTLCache(maxsize=100, ttl=3600)
 logging.basicConfig(level=logging.INFO)
@@ -47,7 +46,7 @@ recent_messages = {}
 recent_messages_lock = Lock()
 
 class ChatbotService:
-    initial_message_sent = {}  
+    initial_message_sent = defaultdict(lambda: False)
     order_timers = {} 
     user_contexts = {}
     product_embeddings = {} 
@@ -91,12 +90,8 @@ class ChatbotService:
         Limpia, corrige y reorganiza el mensaje para interpretarlo correctamente.
         Combina varias técnicas de procesamiento de texto.
         """
-        from transformers import pipeline
         import re
         from unidecode import unidecode
-
-    
-        corrector = pipeline("text2text-generation", model="t5-base", tokenizer="t5-base")
 
         def clean_text(text: str) -> str:
             """
@@ -106,31 +101,6 @@ class ChatbotService:
             text = re.sub(r"[^a-zA-Z0-9áéíóúüñ\s]", "", text)  
             text = re.sub(r"\s+", " ", text)  
             return text.strip().lower()
-
-        def correct_spelling_and_grammar(text: str) -> str:
-            """
-            Corrige errores ortográficos y gramaticales usando IA.
-            """
-            try:
-                corrected = corrector(f"fix: {text}", max_length=200, num_return_sequences=1)
-                return corrected[0]["generated_text"].strip()
-            except Exception as e:
-                logging.error(f"Error al corregir texto: {str(e)}")
-                return text 
-
-        def simplify_phrases(text: str) -> str:
-            """
-            Simplifica frases largas o complejas en términos básicos.
-            """
-            replacements = {
-                "quiero realizar una orden": "quiero ordenar",
-                "quisiera comprar algo": "quiero comprar",
-                "me gustaría hacer un pedido": "quiero pedir",
-                "necesito información sobre": "dime sobre",
-            }
-            for phrase, replacement in replacements.items():
-                text = text.replace(phrase, replacement)
-            return text
 
         def remove_redundancies(text: str) -> str:
             """
@@ -148,8 +118,6 @@ class ChatbotService:
     
         logging.info(f"Mensaje original: {message}")
         message = clean_text(message)
-        message = correct_spelling_and_grammar(message)
-        message = simplify_phrases(message)
         message = remove_redundancies(message)
         logging.info(f"Mensaje procesado: {message}")
 
@@ -202,32 +170,23 @@ class ChatbotService:
         - No mencione que los datos provienen de una base de datos.
         - Devuelve estrictamente el mensaje sin encabezados ni notas adicionales.
         """
-      
-        try:
-            response = client.chat.completions.create(
-                model="gpt-4o",
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=300,
-            )
-            ChatbotService.initial_message_sent[sender_id] = True
-            print(f"4valor de ChatbotService.initial_message_sent despues de enviar mensaje inicial: {ChatbotService.initial_message_sent}")
-            return response.choices[0].message.content.strip()
+        print(f'primer_producto en handle_first_message: {primer_producto}')
+        print(f'db_response en handle_first_message: {db_response}')
 
-        except Exception as e:
-            logging.error(f"Error al generar el mensaje inicial: {str(e)}")
-            return (
-                "Lo siento, hubo un problema al procesar tu solicitud. Por favor, intenta nuevamente más tarde."
-            )
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=300,
+        )
+        return response.choices[0].message.content.strip()
         
     @staticmethod
     def generate_humanlike_response(
         question: str,
         db_response: str,
-        sender_id: str,
         ciudades_disponibles: list,
         productos_por_ciudad: dict,
-        chat_history: str = "",
-        primer_producto: str = "Acxion",  
+        chat_history: str = "", 
     ) -> str:
         logging.info(f"Recibido db_response en generate_humanlike_response: {db_response}")
 
@@ -240,17 +199,7 @@ class ChatbotService:
             [f"{ciudad.capitalize()}: {', '.join(map(str, productos))}" for ciudad, productos in productos_por_ciudad.items()]
         )
         ChatbotService.update_keywords_based_on_feedback(question)
-        print(f"3valor de ChatbotService.initial_message_sent antes de enviar mensaje inicial: {ChatbotService.initial_message_sent}")
-        
-        if sender_id not in ChatbotService.initial_message_sent:
-            print(f"Mensaje inicial enviado a {sender_id}")
-            print(f'valor de ChatbotService.initial_message_sent: {ChatbotService.initial_message_sent}')
-            return ChatbotService.handle_first_message(
-                sender_id, db_response, primer_producto
-                )
-          
-
-
+     
         feedback_phrases = [
             "muchas gracias", "no gracias", "ya no", "listo", "luego te hablo",
             "no necesito más", "ok", "gracias por info", "adios"
@@ -567,7 +516,6 @@ class ChatbotService:
             response = ChatbotService.generate_humanlike_response(
                 question=sanitized_question,
                 db_response=db_response,
-                sender_id=sender_id,
                 productos_por_ciudad=productos_por_ciudad,
                 ciudades_disponibles=ciudades_disponibles,
                 primer_producto=primer_producto,
@@ -577,7 +525,6 @@ class ChatbotService:
             respuesta = ChatbotService.generate_humanlike_response(
                 question=sanitized_question, 
                 db_response=db_response, 
-                sender_id=sender_id,
                 ciudades_disponibles=ciudades_disponibles,
                 productos_por_ciudad=productos_por_ciudad,
               )
@@ -868,6 +815,27 @@ class FacebookService:
                     normalized_message = ChatbotService.normalize_and_interpret_message(message_text)
                     logging.info(f"Mensaje normalizado: {normalized_message}")
 
+                    if sender_id not in ChatbotService.initial_message_sent:
+                        ChatbotService.initial_message_sent[sender_id] = False
+                        print(f"Inicializando sender_id {sender_id} como False")
+                        print(f"Valor después de inicializar: {ChatbotService.initial_message_sent[sender_id]}")
+
+                    print(f"Estado actual de ChatbotService.initial_message_sent antes de verificar: {ChatbotService.initial_message_sent}")
+                    print(f"Verificando valor específico para sender_id {sender_id}: {ChatbotService.initial_message_sent[sender_id]}")
+
+                    mensaje_inicial_enviado = ChatbotService.initial_message_sent[sender_id]
+                    if not mensaje_inicial_enviado:
+                        print(f"Enviando mensaje inicial a {sender_id} porque mensaje_inicial_enviado es {mensaje_inicial_enviado}")
+                        db_response = "\n".join(
+                            [f"{prod['producto']}: Precio {prod['precio']} pesos" for prod in crud_producto.get_productos_by_cuenta(db, cuenta_id)]
+                            )   
+                        primer_producto = ChatbotService.extract_product_from_initial_message(message_text)
+                        response = ChatbotService.handle_first_message(sender_id, db_response, primer_producto)
+                        await FacebookService.send_text_message(sender_id, response, api_key)
+                        ChatbotService.initial_message_sent[sender_id] = True
+                        return
+
+
                     if is_audio:
                         response_text = (
                             "Lo siento, no puedo escuchar audios en este momento. Por favor, escribe tu mensaje para que pueda ayudarte."
@@ -944,14 +912,15 @@ class FacebookService:
                             ChatbotService.user_contexts[cuenta_id][sender_id] = context
 
                         ciudad = ChatbotService.extract_city_from_text(message_text, db)
-                        direccion = ChatbotService.extract_address_from_text(message_text, sender_id, db)
+                        direccion = ChatbotService.extract_address_from_text(message_text, cuenta_id, sender_id, db)
                         telefono = ChatbotService.extract_phone_number(message_text)
                         productos_detectados = ChatbotService.extract_product_and_quantity(message_text, db)
-
                         pregunta_similar =  await ChatbotService.search_faq_in_db(message_text, db)
+
                         if pregunta_similar:
                             logging.info(f"Pregunta similar detectada: {pregunta_similar}. Saliendo del flujo aislado.")
                             context["orden_flujo_aislado"] = False
+                            context["orden_creada"] = True
                             ChatbotService.user_contexts[cuenta_id][sender_id] = context
                             response_data = await ChatbotService.ask_question(
                                 question=message_text,
@@ -989,7 +958,7 @@ class FacebookService:
                         
                         ChatbotService.user_contexts[cuenta_id][sender_id] = context
 
-                        await asyncio.sleep(300)
+                        await asyncio.sleep(180)
                         datos_faltantes = []
                         if not context.get("telefono"):
                             datos_faltantes.append("número de teléfono")
@@ -1009,6 +978,69 @@ class FacebookService:
                             await FacebookService.send_text_message(sender_id, reminder_text, api_key)
                             context["mensaje_faltante_enviado"] = True
                             ChatbotService.user_contexts[cuenta_id][sender_id] = context
+
+                        elif context.get("telefono") and context.get("direccion") and context.get("ciudad") and context.get("productos") and context["orden_flujo_aislado"]:
+                            print("if con todos los datos")
+                            if not context.get("orden_creada"):
+                                print("datos del contexto: ", context)
+                                try:
+                                    nombre = context.get("nombre", "Cliente")
+                                    apellido = context.get("apellido", "Apellido")
+                                    productos = context["productos"]
+                                    ciudad = context.get("ciudad", "N/A")
+                                    direccion = context.get("direccion", "N/A")
+                                    cantidad_cajas = sum([p["cantidad"] for p in productos])
+                                    telefono = context.get("telefono")
+                                    email = context.get("email", "N/A")
+
+                                    productos_info = crud_producto.get_productos_by_cuenta(db, cuenta_id)
+
+                                    for producto in productos:
+                                        producto_nombre = f"{producto['producto']} ({producto['cantidad']})".lower()
+                                        producto["precio"] = next(
+                                            (prod['precio'] for prod in productos_info if prod['producto'].lower() == producto_nombre),
+                                            0  
+                                        )
+                                       
+
+                                    cantidad_cajas = sum([p["cantidad"] for p in productos])
+                                    ChatbotService.user_contexts[cuenta_id][sender_id] = context
+
+                                    print(f'productos: {productos}')
+                                    print(f'cantidad_cajas: {cantidad_cajas}')
+                                    print(f'producto nomnre: {producto_nombre}')
+                                    
+                                
+                                    order_data = schemas.OrderCreate(
+                                        phone=telefono,
+                                        email=email,
+                                        address=direccion,
+                                        producto=productos,
+                                        cantidad_cajas=cantidad_cajas,
+                                        ciudad=ciudad,
+                                        ad_id=context.get("ad_id", "N/A"),
+                                    )
+
+                                    crud_order = CRUDOrder()
+                                    nueva_orden = crud_order.create_order(db=db, order=order_data, nombre=nombre, apellido=apellido)
+
+                                    respuesta = (
+                                        f"✅ Su pedido ya quedó registrado:\n"
+                                        f"📦 Sus productos llegarán pronto!\n"
+                                        f"📞 Teléfono: {telefono}\n"
+                                        f"📍 Ciudad: {ciudad}\n"
+                                        "El repartidor se comunicará contigo entre 8 AM y 9 PM para confirmar la entrega. ¡Gracias por tu compra! 😊"
+                                    )
+                                    await FacebookService.send_text_message(sender_id, respuesta, api_key)
+                                    context["orden_creada"] = True
+
+                                    ChatbotService.user_contexts[cuenta_id][sender_id] = context
+                                    print(f'orden_creada: {context["orden_creada"]}')
+                                    logging.info(f"Orden creada exitosamente: {nueva_orden}")
+
+                                except Exception as e:
+                                    logging.error(f"Error al crear la orden: espere porfavor")
+
 
                         await asyncio.sleep(180)
 
