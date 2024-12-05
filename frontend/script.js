@@ -263,19 +263,25 @@ async function fetchProductos() {
             return;
         }
 
-        // Renderiza los productos con sus botones de eliminación
+        // Renderiza los productos con la estructura correcta
         document.getElementById("productos-list").innerHTML = productos
-            .map(producto => `
-                <p>${producto.cantidad} caja(s) de ${producto.producto} - Precio: ${producto.precio}
-                    <button onclick="deleteProducto(${producto.id})">Eliminar</button>
-                </p>
-            `)
+            .map(producto => {
+                const nombreProducto = producto.producto || "Producto desconocido";
+                const precio = producto.precio || "Sin precio";
+
+                return `
+                    <p>Cuenta ID: ${cuentaId} - Producto: ${nombreProducto} - Precio: ${precio}
+                        <button onclick="deleteProducto(${producto.id})">Eliminar</button>
+                    </p>
+                `;
+            })
             .join("");
     } catch (error) {
         console.error("Error al cargar productos:", error);
         document.getElementById("productos-list").innerHTML = "<p>Error al cargar productos. Revisa la consola para más detalles.</p>";
     }
 }
+
 
 
 
