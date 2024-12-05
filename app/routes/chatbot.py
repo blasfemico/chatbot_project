@@ -209,6 +209,8 @@ class ChatbotService:
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=300,
             )
+            ChatbotService.initial_message_sent[sender_id] = True
+            print(f"4valor de ChatbotService.initial_message_sent despues de enviar mensaje inicial: {ChatbotService.initial_message_sent}")
             return response.choices[0].message.content.strip()
 
         except Exception as e:
@@ -241,7 +243,6 @@ class ChatbotService:
         print(f"3valor de ChatbotService.initial_message_sent antes de enviar mensaje inicial: {ChatbotService.initial_message_sent}")
         
         if sender_id not in ChatbotService.initial_message_sent:
-            ChatbotService.initial_message_sent[sender_id] = True
             print(f"Mensaje inicial enviado a {sender_id}")
             print(f'valor de ChatbotService.initial_message_sent: {ChatbotService.initial_message_sent}')
             return ChatbotService.handle_first_message(
@@ -821,7 +822,7 @@ class FacebookService:
             "voy a adquirir un producto", "quiero agendar un pedido ahora", "quisiera comprar algo",
             "quiero obtener el producto", "me interesa hacer un pedido", "necesito adquirir algo",  
             "me gustaría ordenar ahora", "voy a comprar el producto", "quiero hacer mi orden", "order",  
-            "quiero agendar mi pedido", "quiero procesar una orden", "quiero adquirir el producto ahora",  "voy a comprar", "me interesa",
+            "quiero agendar mi pedido", "quiero procesar una orden", "quiero adquirir el producto ahora",  "voy a comprar", 
             "ocupo", "quiero", 
         ]
 
@@ -858,7 +859,6 @@ class FacebookService:
 
                 processed_message_ids.add(message_id)
 
-
                 if "message" in event and not event.get("message", {}).get("is_echo"):
                     sender_id = event["sender"]["id"]
                     message_text = event["message"].get("text", "").strip()
@@ -876,49 +876,50 @@ class FacebookService:
                         await FacebookService.send_text_message(sender_id, response_text, api_key)
                         continue
 
-                    user_context = ChatbotService.user_contexts.get(sender_id, {}).get(cuenta_id)
+                    if cuenta_id not in ChatbotService.user_contexts:
+                        ChatbotService.user_contexts[cuenta_id] = {}
+
+                    user_context = ChatbotService.user_contexts[cuenta_id].get(sender_id, {})
                     user_profile = FacebookService.get_user_profile(sender_id, api_key)
 
                     if not user_context:
                         user_profile = FacebookService.get_user_profile(sender_id, api_key)
                         if user_profile:
-                            ChatbotService.user_contexts.setdefault(sender_id, {}).update({
-                                cuenta_id: {
-                                    "nombre": user_profile.get("first_name", "Cliente") if user_profile else "Cliente",
-                                    "apellido": user_profile.get("last_name", "Apellido") if user_profile else "Apellido",
-                                    "productos": [],
-                                    "telefono": None,
-                                    "ad_id": ad_id if ad_id else None,
-                                    "intencion_detectada": None,
-                                    "ciudad": None,
-                                    "direccion": None,
-                                    "fase_actual": "iniciar_orden" if any(phrase in message_text for phrase in order_intent_phrases) else "espera",
-                                    "fecha_inicio_orden": datetime.now(),
-                                    "orden_flujo_aislado": False,
-                                    "mensaje_predeterminado_enviado": False,
-                                    "pregunta": message_text,
-                                    "orden_creada": False,
-                                    "mensaje_faltante_enviado": False,
-                                    "mensaje_creacion_enviado": False,
-                                    "mensaje_creacion_enviado2": False,
-                                    "saltear_mensaje_faltante": False
-                                }
-                            })
+                            ChatbotService.user_contexts[cuenta_id][sender_id] = {
+                                "nombre": user_profile.get("first_name", "Cliente") if user_profile else "Cliente",
+                                "apellido": user_profile.get("last_name", "Apellido") if user_profile else "Apellido",
+                                "productos": [],
+                                "telefono": None,
+                                "ad_id": ad_id if ad_id else None,
+                                "intencion_detectada": None,
+                                "ciudad": None,
+                                "direccion": None,
+                                "fase_actual": "iniciar_orden" if any(phrase in message_text for phrase in order_intent_phrases) else "espera",
+                                "fecha_inicio_orden": datetime.now(),
+                                "orden_flujo_aislado": False,
+                                "mensaje_predeterminado_enviado": False,
+                                "pregunta": message_text,
+                                "orden_creada": False,
+                                "mensaje_faltante_enviado": False,
+                                "mensaje_creacion_enviado": False,
+                                "mensaje_creacion_enviado2": False,
+                                "saltear_mensaje_faltante": False
+                            }
 
-                    context = ChatbotService.user_contexts[sender_id][cuenta_id]
+                    context = ChatbotService.user_contexts[cuenta_id][sender_id]
                     telefono = ChatbotService.extract_phone_number(message_text)
             
-                    if telefono  :
+                    if telefono:
                         context["telefono"] = telefono if telefono else context.get("telefono")
                         context["orden_flujo_aislado"] = True
-                        ChatbotService.user_contexts[sender_id][cuenta_id] = context
-                        logging.info(f"Número de teléfono o dirección detectados. Activando flujo aislado. Teléfono: {telefono}" )
+                        ChatbotService.user_contexts[cuenta_id][sender_id] = context
+                        logging.info(f"Número de teléfono o dirección detectados. Activando flujo aislado. Teléfono: {telefono}")
                     
                     productos_detectados = ChatbotService.extract_product_and_quantity(message_text, db)
                     if productos_detectados:
                         context["productos"] = productos_detectados
                         logging.info(f"Productos detectados: {productos_detectados}")   
-                        context = ChatbotService.user_contexts[sender_id][cuenta_id]
+                        context = ChatbotService.user_contexts[cuenta_id][sender_id]
                     else:
                         logging.info("No se detectaron productos en el mensaje.")
                     
@@ -926,7 +927,7 @@ class FacebookService:
                         context["orden_flujo_aislado"] = True
                         context["mensaje_creacion_enviado"] = False 
 
-                    print(f'CONTEXTO anztes de orden flujo aislado: {context}')
+                    print(f'CONTEXTO antes de orden flujo aislado: {context}')
                     if context.get("orden_flujo_aislado"): 
                         context["mensaje_creacion_enviado"] = False 
                         if not context.get("mensaje_predeterminado_enviado"):
@@ -940,10 +941,10 @@ class FacebookService:
                             logging.info(f"Flujo aislado activado. Respuesta: {response_text}")
                             await FacebookService.send_text_message(sender_id, response_text, api_key)
                             context["mensaje_predeterminado_enviado"] = True
-                            ChatbotService.user_contexts[sender_id][cuenta_id] = context
+                            ChatbotService.user_contexts[cuenta_id][sender_id] = context
 
                         ciudad = ChatbotService.extract_city_from_text(message_text, db)
-                        direccion = ChatbotService.extract_address_from_text(message_text, sender_id, cuenta_id, db)
+                        direccion = ChatbotService.extract_address_from_text(message_text, sender_id, db)
                         telefono = ChatbotService.extract_phone_number(message_text)
                         productos_detectados = ChatbotService.extract_product_and_quantity(message_text, db)
 
@@ -951,7 +952,7 @@ class FacebookService:
                         if pregunta_similar:
                             logging.info(f"Pregunta similar detectada: {pregunta_similar}. Saliendo del flujo aislado.")
                             context["orden_flujo_aislado"] = False
-                            ChatbotService.user_contexts[sender_id][cuenta_id] = context
+                            ChatbotService.user_contexts[cuenta_id][sender_id] = context
                             response_data = await ChatbotService.ask_question(
                                 question=message_text,
                                 sender_id=sender_id,
@@ -973,7 +974,7 @@ class FacebookService:
                             productos_detectados = [{"producto": primer_producto, "cantidad": 1}]
                             logging.info(f"No se detectaron productos, se agregó el producto predeterminado: {productos_detectados}")
                             context["productos"] = productos_detectados
-                            ChatbotService.user_contexts[sender_id][cuenta_id] = context
+                            ChatbotService.user_contexts[cuenta_id][sender_id] = context
 
                         datos_extraidos = {
                             "ciudad": ciudad,
@@ -986,7 +987,7 @@ class FacebookService:
                                 context[key] = value
                                 logging.info(f"Actualizado {key}: {value}")
                         
-                        ChatbotService.user_contexts[sender_id][cuenta_id] = context
+                        ChatbotService.user_contexts[cuenta_id][sender_id] = context
 
                         await asyncio.sleep(300)
                         datos_faltantes = []
@@ -1007,7 +1008,7 @@ class FacebookService:
                             )
                             await FacebookService.send_text_message(sender_id, reminder_text, api_key)
                             context["mensaje_faltante_enviado"] = True
-                            ChatbotService.user_contexts[sender_id][cuenta_id] = context
+                            ChatbotService.user_contexts[cuenta_id][sender_id] = context
 
                         await asyncio.sleep(180)
 
@@ -1029,7 +1030,7 @@ class FacebookService:
                             )
                             await FacebookService.send_text_message(sender_id, cancel_text, api_key)
                             context["orden_creada"] = True
-                            ChatbotService.user_contexts[sender_id][cuenta_id] = context
+                            ChatbotService.user_contexts[cuenta_id][sender_id] = context
 
                         elif context.get("telefono") and context.get("direccion") and context.get("ciudad") and context.get("productos") and context["orden_flujo_aislado"]:
                             print("if con todos los datos")
@@ -1056,7 +1057,7 @@ class FacebookService:
                                        
 
                                     cantidad_cajas = sum([p["cantidad"] for p in productos])
-                                    ChatbotService.user_contexts[sender_id][cuenta_id] = context
+                                    ChatbotService.user_contexts[cuenta_id][sender_id] = context
 
                                     print(f'productos: {productos}')
                                     print(f'cantidad_cajas: {cantidad_cajas}')
@@ -1086,7 +1087,7 @@ class FacebookService:
                                     await FacebookService.send_text_message(sender_id, respuesta, api_key)
                                     context["orden_creada"] = True
 
-                                    ChatbotService.user_contexts[sender_id][cuenta_id] = context
+                                    ChatbotService.user_contexts[cuenta_id][sender_id] = context
                                     print(f'orden_creada: {context["orden_creada"]}')
                                     logging.info(f"Orden creada exitosamente: {nueva_orden}")
 
@@ -1116,7 +1117,7 @@ class FacebookService:
                                         )
 
                                     cantidad_cajas = sum([p["cantidad"] for p in productos])
-                                    ChatbotService.user_contexts[sender_id][cuenta_id] = context
+                                    ChatbotService.user_contexts[cuenta_id][sender_id] = context
 
 
                                     print(f'productos: {productos}')
@@ -1147,7 +1148,7 @@ class FacebookService:
                                     await FacebookService.send_text_message(sender_id, respuesta, api_key)
                                     context["orden_creada"] = True
 
-                                    ChatbotService.user_contexts[sender_id][cuenta_id] = context
+                                    ChatbotService.user_contexts[cuenta_id][sender_id] = context
                                     print(f'orden_creada: {context["orden_creada"]}')
                                     logging.info(f"Orden creada exitosamente: {nueva_orden}")
 
@@ -1166,7 +1167,7 @@ class FacebookService:
                                     context[key] = False  
                                 context["fase_actual"] = "espera"
                                 print(f'keys_to_false: {keys_to_false}')
-                                ChatbotService.user_contexts[sender_id][cuenta_id] = context
+                                ChatbotService.user_contexts[cuenta_id][sender_id] = context
 
                                 print(f'mensaje_faltante_enviado: {context["mensaje_faltante_enviado"]}')
                                 print(f'orden_creada: {context["orden_creada"]}')
@@ -1185,7 +1186,7 @@ class FacebookService:
                         if context.get("mensaje_faltante_enviado"):
                             logging.info("habilitando el mensaje faltante")
                             context["mensaje_faltante_enviado"] = False 
-                            ChatbotService.user_contexts[sender_id][cuenta_id] = context
+                            ChatbotService.user_contexts[cuenta_id][sender_id] = context
                             
                             if context.get("orden_creada"):
                                 logging.info("Reiniciando valores después de completar la orden.")
@@ -1198,7 +1199,7 @@ class FacebookService:
                                 for key in keys_to_false:
                                     context[key] = False  
                                 context["fase_actual"] = "espera"
-                                ChatbotService.user_contexts[sender_id][cuenta_id] = context
+                                ChatbotService.user_contexts[cuenta_id][sender_id] = context
                             return
                         
                         else:
