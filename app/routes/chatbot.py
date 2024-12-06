@@ -386,6 +386,18 @@ class ChatbotService:
 
         return None
 
+    @staticmethod
+    async def is_question_or_faq(message_text: str, db: Session) -> bool:
+        question_indicators = [
+            "qué", "cuál", "cómo", "dónde", "cuándo", "por qué", "quién", "puedo", "necesito saber", 
+            "me interesa", "dime", "explícame", "tienes información", "quiero saber", "cuesta",
+            "hay", "vendes", "disponible", "precio", "tienes", "es"
+        ]
+        is_explicit_question = any(word in message_text.lower() for word in question_indicators)
+        pregunta_similar = await ChatbotService.search_faq_in_db(message_text, db)
+        return is_explicit_question or pregunta_similar is not None
+
+
         
     def extract_city_from_text(input_text: str, db: Session) -> str:
         """
@@ -916,27 +928,37 @@ class FacebookService:
                         telefono = ChatbotService.extract_phone_number(message_text)
                         productos_detectados = ChatbotService.extract_product_and_quantity(message_text, db)
                         pregunta_similar =  await ChatbotService.search_faq_in_db(message_text, db)
+                        es_pregunta = await ChatbotService.is_question_or_faq(message_text, db)
 
-                        if pregunta_similar:
-                            logging.info(f"Pregunta similar detectada: {pregunta_similar}. Saliendo del flujo aislado.")
-                            context["orden_flujo_aislado"] = False
+                        if es_pregunta:
+                            logging.info(f"Pregunta detectada: {message_text}. Saliendo del flujo aislado.")
                             context["orden_creada"] = True
+                            context["orden_flujo_aislado"] = False
                             ChatbotService.user_contexts[cuenta_id][sender_id] = context
-                            response_data = await ChatbotService.ask_question(
-                                question=message_text,
-                                sender_id=sender_id,
-                                cuenta_id=cuenta_id,
-                                db=db,
-                            )
-                            response_text = response_data.get("respuesta", "Lo siento, no entendí tu mensaje.")
-                            await FacebookService.send_text_message(sender_id, response_text, api_key)
-                            return  
+                            await ChatbotService.ask_question(message_text, sender_id, api_key, db)
+                            return
                         
                         if productos_detectados:
+                            productos_info = crud_producto.get_productos_by_cuenta(db, cuenta_id)
+                            productos_db = [prod['producto'].lower() for prod in productos_info]
+                            
+                            productos_no_existentes = [p for p in productos_detectados 
+                                                     if p['producto'].lower() not in productos_db]
+                            
+                            if productos_no_existentes:
+                                response_text = "Lo siento, los siguientes productos no existen en nuestro catálogo:\n"
+                                for p in productos_no_existentes:
+                                    response_text += f"• {p['producto']}\n"
+                                response_text += "\nPor favor, verifica los nombres de los productos e intenta nuevamente."
+                                await FacebookService.send_text_message(sender_id, response_text, api_key)
+                                context["orden_creada"] = True
+                                ChatbotService.user_contexts[cuenta_id][sender_id] = context
+                                return
                             context["productos"] = productos_detectados
                             logging.info(f"Productos detectados: {productos_detectados}")
                         else:
                             logging.info("No se detectaron productos en el mensaje.")
+                            
 
                         if not productos_detectados:
                             primer_producto = ChatbotService.extract_product_from_initial_message(message_text)
