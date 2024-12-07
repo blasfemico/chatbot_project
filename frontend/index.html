@@ -23,7 +23,15 @@
         </nav>
     </header>
     <main id="content">
-        <!-- Aquí se cargará el contenido dinámico -->
+        <section id="ordenes">
+            <h2>Gestionar Órdenes</h2>
+            <button onclick="fetchOrders()">Ver Todas las Órdenes</button>
+            <input type="number" id="orderId" placeholder="ID de la Orden" required>
+            <button onclick="fetchOrderById()">Ver Orden por ID</button>
+            <button onclick="deleteAllOrders()">Eliminar Todas las Órdenes</button>
+            <div id="orders-list"></div>
+            <div id="single-order"></div>
+        </section>
     </main>
     <script src="script.js"></script>
 </body>
