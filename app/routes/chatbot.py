@@ -57,7 +57,7 @@ order_intent_phrases = [
     "voy a adquirir un producto", "quiero agendar un pedido ahora", "quisiera comprar algo",
     "quiero obtener el producto", "me interesa hacer un pedido", "necesito adquirir algo",
     "me gustaría ordenar ahora", "voy a comprar el producto", "quiero hacer mi orden", "order",
-    "quiero agendar mi pedido", "quiero procesar una orden", "quiero adquirir el producto ahora", "voy a comprar",
+    "quiero agendar mi pedido", "quiero procesar una orden", "quiero adquirir el producto ahora", "voy a comprar", "voy a querer", "pedir", 
     "ocupo", "quiero", "quiero caja"
 ]
 
@@ -901,10 +901,23 @@ class FacebookService:
         if telefono:
             context["telefono"] = telefono
             context["orden_flujo_aislado"] = True
+            FacebookService.handle_context_logic(context, sender_id, cuenta_id, api_key, db, message_text)
+            
 
         productos_detectados = ChatbotService.extract_product_and_quantity(message_text, db)
         if productos_detectados:
+            for producto in productos_detectados:
+                producto_nombre = producto["producto"]
+                producto_en_inventario = crud_producto.get_producto_por_nombre(db, cuenta_id, producto_nombre)
+                if not producto_en_inventario:
+                    await FacebookService.send_text_message(
+                        sender_id,
+                        f"Lo siento, no tenemos '{producto_nombre}' en el inventario.",
+                        api_key
+                    )
+                    return
             context["productos"] = productos_detectados
+            context["orden_flujo_aislado"] = True
 
         if any(phrase in message_text for phrase in order_intent_phrases):
             context["orden_flujo_aislado"] = True
