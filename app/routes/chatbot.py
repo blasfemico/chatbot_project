@@ -900,7 +900,7 @@ class FacebookService:
             FacebookService.handle_context_logic(context, sender_id, cuenta_id, api_key, db, message_text)
             
 
-        productos_detectados = ChatbotService.process_product_and_assign_price(message_text, db, cuenta_id)
+        productos_detectados = FacebookService.process_product_and_assign_price(message_text, db, cuenta_id)
         if productos_detectados:
             productos_validos = []
             for producto in productos_detectados:
