@@ -9,10 +9,9 @@ from app.models import (
     ProductoCiudad,
     Ciudad
 )
-from app.crud import CRUDProduct, FAQCreate, CRUDFaq, CRUDCiudad
+from app.crud import CRUDProduct, FAQCreate, CRUDFaq, CRUDCiudad, CRUDOrder
 from app.schemas import Cuenta as CuentaSchema
 from app.schemas import FAQSchema, FAQUpdate, APIKeyCreate
-from app.routes.orders import OrderService
 from app import schemas
 from app.config import settings
 from openai import OpenAI
@@ -22,13 +21,18 @@ import requests
 from typing import List
 from sentence_transformers import SentenceTransformer, util
 import re
-from datetime import datetime, timedelta, date
+from datetime import datetime, date
 from json import JSONDecodeError
 import logging
 from cachetools import TTLCache
-from unidecode import unidecode  
 import asyncio
-
+import stanza
+from threading import Lock
+import time
+from stanza import DownloadMethod
+from typing import Optional
+from collections import defaultdict
+from unidecode import unidecode
 
 cache = TTLCache(maxsize=100, ttl=3600)
 logging.basicConfig(level=logging.INFO)
@@ -40,9 +44,26 @@ crud_faq = CRUDFaq(model)
 VERIFY_TOKEN = "chatbot_project"
 API_KEYS_FILE = "api_keys.json" 
 processed_message_ids = set()
+recent_messages = {}
+recent_messages_lock = Lock()
+order_intent_phrases = [
+    "hacer una orden", "quiero pedir", "voy a comprar", "kiero", "pedir", "quiero hacer un pedido",
+    "ordenar", "comprar", "quiero ordenar", "voy a ordenar", "quiero hacer una compra",
+    "quisiera hacer una compra", "necesito hacer una compra", "me interesa pedir",
+    "voy a realizar una orden", "estoy interesado en pedir", "quisiera agendar un pedido",
+    "me gustaría hacer un pedido", "quiero pedir", "quisiera ordenar", "voy a pedir",
+    "quiero hacer una orden ahora", "estoy listo para pedir", "estoy listo para hacer una orden",
+    "voy a realizar mi pedido", "necesito hacer un pedido ya", "quisiera agendar una orden",
+    "voy a adquirir un producto", "quiero agendar un pedido ahora", "quisiera comprar algo",
+    "quiero obtener el producto", "me interesa hacer un pedido", "necesito adquirir algo",
+    "me gustaría ordenar ahora", "voy a comprar el producto", "quiero hacer mi orden", "order",
+    "quiero agendar mi pedido", "quiero procesar una orden", "quiero adquirir el producto ahora", "voy a comprar", "voy a querer", "pedir", 
+    "ocupo", "quiero", "quiero caja"
+]
+
 
 class ChatbotService:
-    initial_message_sent = {}  
+    initial_message_sent = defaultdict(lambda: False)
     order_timers = {} 
     user_contexts = {}
     product_embeddings = {} 
@@ -58,11 +79,14 @@ class ChatbotService:
         if product_match:
             return product_match.group(2).capitalize()
         return "Acxion"
-
+    
     @staticmethod
-    def sanitize_text(text: str) -> str:
-        sanitized_text = re.sub(r"[^a-zA-Z0-9\s]", "", unidecode(text))
-        return sanitized_text.lower()
+    def ensure_initial_message_sent(sender_id):
+        """
+        Asegura que el mensaje inicial sea enviado solo una vez por usuario.
+        """
+        if sender_id not in ChatbotService.initial_message_sent:
+            ChatbotService.initial_message_sent[sender_id] = False
 
     @staticmethod
     def update_keywords_based_on_feedback(text: str):
@@ -78,15 +102,107 @@ class ChatbotService:
                     file.write(f"{new_keyword}\n")
 
     @staticmethod
+    def normalize_and_interpret_message(message: str) -> str:
+        """
+        Limpia, corrige y reorganiza el mensaje para interpretarlo correctamente.
+        Combina varias técnicas de procesamiento de texto.
+        """
+        import re
+        from unidecode import unidecode
+
+        def clean_text(text):
+            if not isinstance(text, str):
+                raise ValueError(f"Expected string, but got {type(text)}: {text}")
+            text = unidecode(text)
+            text = text.lower().strip()
+            return text
+
+
+        def remove_redundancies(text: str) -> str:
+            """
+            Elimina redundancias o palabras repetidas innecesarias.
+            """
+            words = text.split()
+            seen = set()
+            deduplicated = []
+            for word in words:
+                if word not in seen:
+                    deduplicated.append(word)
+                    seen.add(word)
+            return " ".join(deduplicated)
+
+    
+        logging.info(f"Mensaje original: {message}")
+        message = clean_text(message)
+        message = remove_redundancies(message)
+        logging.info(f"Mensaje procesado: {message}")
+
+        return message
+    
+    @staticmethod
+    def handle_first_message(sender_id: str, db_response: str, primer_producto: str = "Acxion") -> str:
+        print(f"2Mensaje inicial enviado a {sender_id}")
+        print(f'2valor de ChatbotService.initial_message_sent: {ChatbotService.initial_message_sent}')
+        """
+        Genera y devuelve el mensaje inicial para el primer contacto de un cliente.
+        Reemplaza los placeholders como "(revisar base de datos)" con valores reales de `db_response`.
+        """
+        prompt = f"""
+        Eres un asistente de ventas que genera mensajes personalizados para los clientes.
+        Asegúrate de reemplazar "(revisar base de datos)" con los valores reales de `db_response`.
+
+        Producto estrella:
+        ¡BAJA DE PESO FÁCIL Y RÁPIDO CON {primer_producto}!
+        (resultados desde la primera o segunda semana)
+
+        BENEFICIOS:
+        • Baja alrededor de 6-10 kilos por mes ASEGURADO.
+        • Acelera tu metabolismo y mejora la digestión.
+        • Quema grasa y reduce tallas rápidamente.
+        • Sin rebote / Sin efectos secundarios.
+
+        Instrucciones: Tomar una pastilla al día durante el desayuno.
+        Contenido: 30 tabletas por caja.
+
+        Precio normal:
+        1 caja: (revisar base de datos)
+        PROMOCIONES:
+        2 cajas: (revisar base de datos)
+        3 cajas: (revisar base de datos)
+        4 cajas: (revisar base de datos)
+        5 cajas: (revisar base de datos)
+
+        ¡Entrega a domicilio GRATIS y pagas al recibir!
+
+        Si quieres hacer una orden, Mandame tu numero de telefono y te dare mas datos que necesito para hacer la orden
+        recuerda mencionarme que productos quieres sino, pondre 1 caja de {primer_producto} para tu orden!
+
+        db_response:
+        {db_response}
+
+        Genera un mensaje final que:
+        - Reemplace "(revisar base de datos)" con los precios reales de `db_response`.
+        - Mantenga el formato amigable y directo para los clientes.
+        - No mencione que los datos provienen de una base de datos.
+        - Devuelve estrictamente el mensaje sin encabezados ni notas adicionales.
+        """
+        print(f'primer_producto en handle_first_message: {primer_producto}')
+        print(f'db_response en handle_first_message: {db_response}')
+
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=300,
+        )
+        return response.choices[0].message.content.strip()
+        
+    @staticmethod
     def generate_humanlike_response(
         question: str,
         db_response: str,
-        sender_id: str,
         ciudades_disponibles: list,
         productos_por_ciudad: dict,
-        chat_history: str = "",
-        primer_producto: str = "Acxion", 
-        initial_message: bool = False,  
+        chat_history: str = "", 
     ) -> str:
         logging.info(f"Recibido db_response en generate_humanlike_response: {db_response}")
 
@@ -99,10 +215,7 @@ class ChatbotService:
             [f"{ciudad.capitalize()}: {', '.join(map(str, productos))}" for ciudad, productos in productos_por_ciudad.items()]
         )
         ChatbotService.update_keywords_based_on_feedback(question)
-        initial_message = not ChatbotService.initial_message_sent.get(sender_id, False)
-        
-        if initial_message:
-            ChatbotService.initial_message_sent[sender_id] = True
+     
         feedback_phrases = [
             "muchas gracias", "no gracias", "ya no", "listo", "luego te hablo",
             "no necesito más", "ok", "gracias por info", "adios"
@@ -114,36 +227,6 @@ class ChatbotService:
         prompt = f"""
     Eres una asistente de ventas que responde preguntas de clientes únicamente con información basada en los datos de productos y precios disponibles en la base de datos. 
     No inventes detalles ni proporciones asesoramiento médico, y no sugieras consultar a un profesional de la salud. Limita tus respuestas solo a la información de productos en la base de datos.
-
-
-        **Condiciones especiales:**
-        - Si `{initial_message}` es verdadero (es el primer mensaje del cliente), responde con el siguiente texto con la informacion de {db_response}, remplaza los (revisar base de datos) por informacion de la base de datos:
-        
-            Hola, te comparto información de mi producto estrella:
-
-            ¡BAJA DE PESO FÁCIL Y RÁPIDO CON {primer_producto}!
-            (resultados desde la primera o segunda semana)
-
-            BENEFICIOS:
-             • Baja alrededor de 6-10 kilos por mes ASEGURADO.
-             • Acelera tu metabolismo y mejora la digestión.
-             • Quema grasa y reduce tallas rápidamente.
-             • Sin rebote / Sin efectos secundarios.
-
-            Instrucciones: Tomar una pastilla al día durante el desayuno.
-            Contenido: 30 tabletas por caja.
-
-            Precio normal:
-            1 caja: (revisar base de datos)
-            PROMOCIONES:
-            2 cajas: (revisar base de datos)
-            3 cajas: (revisar base de datos)
-            4 cajas: (revisar base de datos)
-            5 cajas: (revisar base de datos) 
-
-            ¡Entrega a domicilio GRATIS y pagas al recibir!
-
-            Solo necesito tu número de teléfono, tu dirección y la ciudad en la que vives para agendarte un pedido.
 
     La base de datos de productos disponible es la siguiente:
 
@@ -161,7 +244,7 @@ class ChatbotService:
     Instrucciones para responder:
     - Evita decir segun nuestra informacion de base de datos o que sacas la informacion de la base de datos, directamente di la respuesta, en NINGUNA RESPUESTA, incluyas que sacas la informacion de la base de datos
     - Si la respuesta contiene "(revisar base de datos)", reemplaza esa frase con la información adecuada de la base de datos proporcionada.
-    - Para el caso de "info" o preguntas similares sobre información del producto, usa el siguiente formato de respuesta:
+    - Si responde con referencias o testimonios, mandar la {db_response} sobre los testimonios y referencias, no modifiques ninguan respuesta que provenga de la {db_response}
     - Nunca des recomendaciones de ir al medico, Nunca reveles que eres una IA
     - NUNCA modifiques una respuesta de la base datos, no importa si es de alcohol o algo parecido.
     - Todo lo que sea sobre condiciones de salud, enfermedades, cosas asi, revisa la base de datos para una respuesta segun la base de datos, siempre existe esa informacion asi que siempre solicita a la base de datos informacion para responder sobre diabetes, hipertension o cualquier relacionado
@@ -173,35 +256,9 @@ class ChatbotService:
     - Si es una consulta de ciudades o productos específicos, revisa primero en la base de datos.
     - Usa "No disponible" solo si `db_response` está vacío o no hay datos relevantes para la consulta en la base de datos.
     - Solo menciona las siguientes ciudades: {ciudades_str}. Si el cliente pregunta por todas las ciudades o el país, responde solo con las ciudades disponibles.
-
-
-        Hola, te comparto información de mi producto estrella:
-
-        ¡BAJA DE PESO FÁCIL Y RÁPIDO CON (Revisar nombre del producto en el chat)! 
-        (resultados desde la primera o segunda semana)
-
-        BENEFICIOS:
-         • Baja alrededor de 6-10 kilos por mes ASEGURADO.
-         • Acelera tu metabolismo y mejora la digestión.
-         • Quema grasa y reduce tallas rápidamente.
-         • Sin rebote / Sin efectos secundarios
-
-        Instrucciones: Tomar una pastilla al día durante el desayuno.
-        Contenido: 30 tabletas por caja.
-
-        Precio normal:
-        1 caja: (revisar base de datos para el precio de una caja)
-        PROMOCIONES:
-        2 cajas: (revisar base de datos para el precio de dos cajas)
-        3 cajas: (revisar base de datos para el precio de tres cajas)
-        4 cajas: (revisar base de datos para el precio de cuatro cajas)
-        5 cajas: (revisar base de datos para el precio de cinco cajas)
-
-        ¡Entrega a domicilio GRATIS y pagas al recibir!
-
-        Solo necesito tu número de teléfono, tu dirección y la ciudad en la que vives para agendarte un pedido!
-
+    - Humaniza mas las respuestas, evita repetir mensajes, si vas a volver a decir algo, dilo de distinta forma, se mas logico
     - Si el cliente pregunta sobre un producto específico en la base de datos, responde solo con el precio o detalles de ese producto.
+    - Si vas a responder algo sobre las ciudades, enlistalo y ponlo de manera bonita cosa de que sea mas facil de leer
     - Si la pregunta es general o no se refiere a un producto específico, usa la información de preguntas frecuentes o responde de manera general con un tono amigable, pero sin inventar ni dar recomendaciones médicas.
 
     Pregunta del cliente: "{question}"
@@ -222,35 +279,12 @@ class ChatbotService:
             "todas las ciudades", f"las ciudades disponibles: {ciudades_str}"
         ).strip()
 
-        if len(clean_response) < 10 or "No disponible" in clean_response:
+        if len(clean_response) < 4 or "No disponible" in clean_response:
             logging.info("Respuesta detectada como poco clara, solicitando aclaración al usuario.")
             return "Lo siento, no entendí completamente tu pregunta. ¿Podrías repetirla o hacerla de otra manera?"
 
         return clean_response
     
-    @staticmethod
-    def is_response_unclear(response: str, context) -> bool:
-        vague_phrases = [
-            "No tengo información suficiente",
-            "No puedo responder a eso",
-            "No entiendo",
-            "Revisa la base de datos",
-        ]
-
-        for phrase in vague_phrases:
-            if phrase.lower() in response.lower():
-                return True
-
-      
-        if context.get("producto") and context.get("cantidad"):
-            return False
-
-     
-        if len(response) < 10 or "?" in response[-1]:
-            return True
-
-        return False
-
 
     @staticmethod
     async def search_faq_in_db(question: str, db: Session) -> str:
@@ -294,220 +328,131 @@ class ChatbotService:
         ]
 
         return {"respuesta": productos_info}
+    
+
+    MODEL_DIR = "./stanza_resources"
+    if not os.path.exists(MODEL_DIR):
+        os.makedirs(MODEL_DIR)
+
+    stanza.download('es', model_dir=MODEL_DIR)  
+    nlp = stanza.Pipeline(
+        'es', 
+        model_dir=MODEL_DIR, 
+        processors='tokenize,ner', 
+        download_method=DownloadMethod.REUSE_RESOURCES,
+        quiet=True
+    )
+
+    @staticmethod
+    def extract_address_from_text(message_text: str, sender_id: str, cuenta_id: int, db: Session) -> Optional[str]:
+        lines = [line.strip() for line in message_text.split('\n') if line.strip()]
+        message_text = " ".join(lines)
+        logging.debug(f"Mensaje normalizado: {message_text}")
+
+        try:
+            client = OpenAI(api_key=settings.OPENAI_API_KEY)
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": "Eres un asistente experto en procesar mensajes para detectar direcciones. Asegúrate de que las ciudades no sean parte de la dirección, solo coloca la direccion en el valor, no coloques, la direccion es:"},
+                    {"role": "user", "content": f"Por favor, identifica la dirección en el siguiente mensaje (excluyendo ciudades conocidas):\n\n{message_text}"}
+                ],
+                max_tokens=50,
+                temperature=0.5
+            )
+
+            direccion = response.choices[0].message.content.strip()
+            if direccion and "No se encontró" not in direccion:
+                ChatbotService.user_contexts.setdefault(sender_id, {}).setdefault(cuenta_id, {})["direccion"] = direccion
+                logging.info(f"Dirección detectada por ChatGPT: {direccion}")
+                return direccion
+        except Exception as e:
+            logging.error(f"Error al utilizar ChatGPT para detectar dirección: {e}")
+
+        message_text = re.sub(r'[^\w\sáéíóúüñ#,-]', '', message_text.lower())
+        message_text = re.sub(r'([a-záéíóúüñ]+)(\d+)', r'\1 \2', message_text)
+        logging.debug(f"Texto procesado: {message_text}")
+        
+        direccion_patterns = [
+            r'\b(?:calle|avenida|avda|av|paseo|ps|plaza|plz|carrer|cr|camino|cm|carretera|ctra)\s*[\wáéíóúüñ]*(?:\s+[\wáéíóúüñ]*)*\s+\d+',
+            r'\b\d{1,5}\s*(?:calle|avenida|avda|av|paseo|ps|plaza|plz|carrer|cr|camino|cm|carretera|ctra)\s*[\wáéíóúüñ]*(?:\s+[\wáéíóúüñ]*)*\b',
+        ]
+
+        ciudades = {ciudad[0].lower() for ciudad in db.query(Ciudad.nombre).all()}
+        logging.debug(f"Ciudades cargadas: {ciudades}")
+        
+        direccion = None
+        for pattern in direccion_patterns:
+            match = re.search(pattern, message_text, re.IGNORECASE)
+            if match:
+                posible_direccion = match.group(0).strip()
+                if not any(ciudad in posible_direccion.lower() for ciudad in ciudades):
+                    direccion = posible_direccion
+                    logging.debug(f"Dirección detectada por patrón: {direccion}")
+                    break
+
+        if direccion:
+            ChatbotService.user_contexts.setdefault(sender_id, {}).setdefault(cuenta_id, {})["direccion"] = direccion
+            logging.info(f"Dirección detectada por reglas: {direccion}")
+            return direccion
+
+        logging.debug("No se detectó ninguna dirección")
+        return None
 
 
     @staticmethod
-    def extract_address_from_text(input_text: str) -> str:
-        """
-        Extrae una dirección desde el texto proporcionado. 
-        Intenta encontrar un patrón común de dirección (número, calle, etc.)
-        """
-        pattern = r"([a-zA-Z0-9\s]+(?:\s\d{1,5}[a-zA-Z]?\s?))"
-        match = re.search(pattern, input_text)
-        if match:
-            return match.group(0).strip()
-        return None
-    
-    def extract_city_from_text(input_text: str, db: Session) -> str:
-        """
-        Extrae el nombre de la ciudad del texto proporcionado.
-        Utiliza el CRUD de Ciudad para hacer una búsqueda exacta o parcial en la base de datos.
-        """
-        input_text = input_text.lower().strip()
-        ciudades = db.query(Ciudad.nombre).all()
-        ciudades = [ciudad[0].lower() for ciudad in ciudades]
+    def extract_city_from_text(input_text: str, db: Session) -> Optional[str]:
+        input_text = unidecode(input_text.lower().strip())
+        logging.debug(f"Texto de entrada normalizado: {input_text}")
+        ciudades = {unidecode(ciudad.nombre.lower().strip()) for ciudad in CRUDCiudad.get_all_cities(db)}
+        logging.debug(f"Ciudades disponibles en la base de datos (normalizadas): {ciudades}")
         for ciudad in ciudades:
             if ciudad in input_text:
+                logging.info(f"Ciudad encontrada directamente en el texto: {ciudad}")
                 return ciudad.title()
+        try:
+            client = OpenAI(api_key=settings.OPENAI_API_KEY)
+            prompt = (
+                "Eres un asistente experto en identificar ciudades en mensajes. "
+                "Devuelve únicamente el nombre de una ciudad reconocida en el mensaje, "
+                "sin incluir direcciones o lugares relacionados. La ciudad debe estar "
+                "en esta lista: " + ", ".join(ciudades)
+            )
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": f"Texto: {input_text}"}
+                ],
+                max_tokens=30,
+                temperature=0.5
+            )
+            ciudad_detectada = response.choices[0].message.content.strip()
+            logging.info(f"Ciudad detectada por ChatGPT: {ciudad_detectada}")
+            ciudad_normalizada = unidecode(ciudad_detectada.lower().strip())
+            if ciudad_normalizada in ciudades:
+                logging.info(f"Ciudad válida detectada: {ciudad_detectada}")
+                return ciudad_detectada.title()
+            else:
+                logging.warning(f"Ciudad detectada no válida: {ciudad_detectada}")
+                return None
+        except Exception as e:
+            logging.error(f"Error al utilizar ChatGPT para detectar ciudad: {e}")
+        logging.warning("No se pudo detectar una ciudad válida")
         return None
-    
+
+
+
     @staticmethod
     async def ask_question(
-        question: str, sender_id: str, cuenta_id: int, db: Session, hacer_order=False
+        question: str, sender_id: str, cuenta_id: int, db: Session
     ) -> dict:
-        sanitized_question = ChatbotService.sanitize_text(question)
-        logging.info(f"Pregunta original: {question}")
-        logging.info(f"Pregunta sanitizada: {sanitized_question}")
+        sanitized_question = ChatbotService.normalize_and_interpret_message(question)
         ChatbotService.update_keywords_based_on_feedback(question)
-
-        order_intent_phrases = [
-            "hacer una orden", "quiero pedir", "voy a comprar", "quiero hacer un pedido",
-            "ordenar", "comprar", "quiero ordenar", "voy a ordenar", "quiero hacer una compra",
-            "me gustaría pedir", "necesito comprar", "quiero realizar una orden", "realizar un pedido",
-            "quiero adquirir", "voy a hacer una compra", "quiero agendar un pedido", "necesito ordenar",
-            "voy a hacer un pedido", "voy a realizar una compra", "quisiera comprar", "quiero hacer una compra",
-            "voy a agendar un pedido", "quisiera realizar un pedido", "me gustaría hacer una orden",
-            "necesito hacer un pedido", "voy a realizar un pedido", "voy a adquirir", "quiero agendar una compra",
-            "quiero comprar algo", "quiero hacer mi pedido", "quiero un producto", "necesito agendar una compra",
-            "quisiera hacer una compra", "necesito hacer una compra", "me interesa pedir",
-            "voy a realizar una orden", "estoy interesado en pedir", "quisiera agendar un pedido",
-            "me gustaría hacer un pedido", "quiero pedir algo", "quisiera ordenar", "voy a pedir",
-            "quiero hacer una orden ahora", "estoy listo para pedir", "estoy listo para hacer una orden",
-            "voy a realizar mi pedido", "necesito hacer un pedido ya", "quisiera agendar una orden",
-            "voy a adquirir un producto", "quiero agendar un pedido ahora", "quisiera comprar algo",
-            "quiero obtener el producto", "me interesa hacer un pedido", "necesito adquirir algo",
-            "me gustaría ordenar ahora", "voy a comprar el producto", "quiero hacer mi orden", "order", "quiero", 
-            "quiero agendar mi pedido", "quiero procesar una orden", "quiero adquirir el producto ahora", "quiero comprar", "voy a comprar"
-        ]
-
-        no_order_intent_phrases = [
-            "quiero hablar de otra cosa", "no quiero hacer una orden", "cambiemos de tema",
-            "no estoy interesado en hacer un pedido", "hablemos de algo más", "no quiero ordenar ahora",
-            "prefiero no hacer un pedido", "quiero discutir otra cosa", "no quiero comprar", "no me interesa hacer una orden",  "no quiero proporcionar más información", "prefiero que me hablen al celular", "no quiero dar más datos",
-            "no tengo más información", "no deseo proporcionar más detalles", "prefiero no seguir dando información",
-            "solo quiero el pedido con lo que ya dije", "no quiero seguir dando datos", "ya es suficiente información",
-            "no quiero compartir más", "mejor hablenme al teléfono", "prefiero que me contacten por teléfono",
-            "no quiero seguir", "eso es todo", "no quiero decir más","no gracias", "no"
-        ]
-
-        if any(phrase in sanitized_question for phrase in order_intent_phrases):
-            logging.info("Intención detectada: hacer una orden")
-            hacer_order = True
-        elif any(phrase in sanitized_question for phrase in no_order_intent_phrases):
-            logging.info("Intención detectada: no hacer una orden")
-            hacer_order = False
-
-        if sender_id not in ChatbotService.user_contexts:
-            ChatbotService.user_contexts[sender_id] = {}
-
-        if cuenta_id not in ChatbotService.user_contexts[sender_id]:
-            # Inicializa contexto si es la primera vez que se recibe un mensaje para este usuario
-            ChatbotService.user_contexts[sender_id][cuenta_id] = {
-                "productos": [],
-                "telefono": None,
-                "nombre": None,
-                "apellido": None,
-                "ad_id": None,
-                "intencion_detectada": None,
-                "ciudad": None,
-                "direccion": None,
-                "email": None,
-                "fase_actual": "iniciar_orden" if hacer_order else "espera",
-                "orden_flujo_aislado": hacer_order,
-                "fecha_inicio_orden": datetime.now()
-            }
-
-        context = ChatbotService.user_contexts[sender_id][cuenta_id]
-        logging.info(f"Contexto inicial para sender_id {sender_id}, cuenta_id {cuenta_id}: {context}")
-
-        # Procesamiento de productos
-        productos = ChatbotService.extract_product_and_quantity(sanitized_question, db)
-        if productos:
-            for producto_info in productos:
-                producto = producto_info.get("producto")
-                cantidad = producto_info.get("cantidad", 1)
-                ChatbotService.update_context(sender_id, cuenta_id, producto, cantidad)
-
-        # Flujo si se va a realizar un pedido
-        if hacer_order:
-            context["orden_flujo_aislado"] = True
-            response_text = (
-                "Para agendar tu pedido solo necesito los siguientes datos:\n"
-                "• Tu número de teléfono\n"
-                "• Dirección con número de casa\n"
-                "• Ciudad en la que vives\n"
-                "• Número de cajas que necesitas"
-            )
-            logging.info(response_text)
-            return {"respuesta": response_text}
-
-        # Manejo de flujo aislado
-        if context["orden_flujo_aislado"]:
-            ciudad = ChatbotService.extract_city_from_text(sanitized_question, db)
-            if ciudad:
-                context["ciudad"] = ciudad
-                logging.info(f"Ciudad detectada: {ciudad}")
-            else:
-                cancel_text = "La ciudad que proporcionaste no está disponible para la venta de productos. Lamentablemente, no podemos procesar tu orden."
-                logging.info(cancel_text)
-                del ChatbotService.user_contexts[sender_id][cuenta_id]
-                return {"respuesta": cancel_text}
-
-            # Procesar dirección y teléfono
-            direccion = ChatbotService.extract_address_from_text(sanitized_question)
-            if direccion:
-                context["direccion"] = direccion
-                logging.info(f"Dirección detectada: {direccion}")
-
-            telefono = ChatbotService.extract_phone_number(sanitized_question)
-            if telefono:
-                context["telefono"] = telefono
-                logging.info(f"Teléfono detectado: {telefono}")
-
-            # Verificar si falta información para completar el pedido
-            if context.get("telefono") and context.get("direccion") and context.get("ciudad") and context.get("productos"):
-                await ChatbotService.create_order_from_context(sender_id, cuenta_id, db, context)
-            else:
-                datos_faltantes = []
-                if not context.get("telefono"):
-                    datos_faltantes.append("número de teléfono")
-                if not context.get("direccion"):
-                    datos_faltantes.append("dirección con número de casa")
-                if not context.get("ciudad"):
-                    datos_faltantes.append("ciudad")
-                if not context.get("productos"):
-                    datos_faltantes.append("número de cajas que necesitas")
-
-                if datos_faltantes:
-                    logging.info(f"Datos faltantes: {datos_faltantes}")
-                    context["fase_actual"] = "espera_datos_faltantes"
-
-                    await asyncio.sleep(60)
-                    if context["fase_actual"] == "espera_datos_faltantes":
-                        reminder_text = (
-                            "Hola, aún no hemos recibido toda la información. Por favor, proporciona los siguientes datos para continuar:\n"
-                            f"- {', '.join(datos_faltantes)}"
-                        )
-                        logging.info(reminder_text)
-                        return {"respuesta": reminder_text}
-
-                    if context.get("telefono"):
-                        await ChatbotService.create_order_from_context(sender_id, cuenta_id, db, context)
-
-                await asyncio.sleep(60)
-                if not context.get("telefono"):
-                    cancel_text = (
-                        "Lamentablemente, hemos cancelado la orden debido a la falta de número de teléfono. "
-                        "Si deseas hacer un pedido, por favor inicia el proceso nuevamente."
-                    )
-                    logging.info(cancel_text)
-                    del ChatbotService.user_contexts[sender_id][cuenta_id]
-                    return {"respuesta": cancel_text}
-
-
-        await ChatbotService.create_order_from_context(sender_id, cuenta_id, db, context)
-
-
+        context = ChatbotService.user_contexts.get(sender_id, {}).get(cuenta_id, {})
         logging.info(f"Contexto actualizado para sender_id {sender_id}: {context}")
         ciudades_disponibles = CRUDCiudad.get_all_cities(db)
         ciudades_nombres = [ciudad.nombre.lower() for ciudad in ciudades_disponibles]
-
-        ciudad_detectada = next((ciudad for ciudad in ciudades_nombres if ciudad in sanitized_question), None)
-        if ciudad_detectada:
-            context["ciudad"] = ciudad_detectada.capitalize()
-            logging.info(f"Ciudad detectada: {ciudad_detectada.capitalize()}. Contexto actualizado.")
-
-        phone_number = ChatbotService.extract_phone_number(sanitized_question)
-        if phone_number:
-            context["telefono"] = phone_number
-
-        logging.info(f"Contexto actualizado para sender_id {sender_id}: {context}")
-        if (
-            context.get("productos") 
-            and context.get("telefono")
-            and context.get("nombre")
-            and context.get("apellido")
-        ):
-            logging.info("Datos completos para crear la orden.")
-            context["intencion_detectada"] = "crear_orden"
-            return await ChatbotService.ask_question(
-                question=question,
-                sender_id=sender_id,
-                cuenta_id=cuenta_id, 
-                db=db,               
-                hacer_order=True
-            )
-
         productos_por_ciudad = {}
         for ciudad in ciudades_disponibles:
             productos = (
@@ -533,7 +478,7 @@ class ChatbotService:
 
         Responde estrictamente en JSON con:
         - "intent": "productos_ciudad" si la pregunta trata de disponibilidad de productos en una ciudad específica.
-        - "intent": "listar_ciudades" si la pregunta solicita solo la lista de ciudades.
+        - "intent": "listar_ciudades" si la pregunta solicita solo la lista de ciudades, abarca cualquier pregunta relacionada con ciudades.
         - "intent": "listar_productos" si la pregunta solicita la lista de todos los productos.
         - "intent": "otro" para preguntas no relacionadas con productos o ciudades.
         - "ciudad": el nombre de la ciudad en la pregunta, si aplica. No pongas "ciudad": null.
@@ -587,18 +532,15 @@ class ChatbotService:
             response = ChatbotService.generate_humanlike_response(
                 question=sanitized_question,
                 db_response=db_response,
-                sender_id=sender_id,
                 productos_por_ciudad=productos_por_ciudad,
                 ciudades_disponibles=ciudades_disponibles,
                 primer_producto=primer_producto,
-                initial_message=True,
             )
             return {"respuesta": response}
         try:
             respuesta = ChatbotService.generate_humanlike_response(
                 question=sanitized_question, 
                 db_response=db_response, 
-                sender_id=sender_id,
                 ciudades_disponibles=ciudades_disponibles,
                 productos_por_ciudad=productos_por_ciudad,
               )
@@ -612,31 +554,6 @@ class ChatbotService:
 
         return {"respuesta": respuesta}
 
-
-    @staticmethod
-    def update_context(sender_id: str, cuenta_id: int, producto: str, cantidad: int):
-        """
-        Actualiza el contexto del usuario para incluir el producto en el formato correcto.
-        """
-        if sender_id not in ChatbotService.user_contexts:
-            ChatbotService.user_contexts[sender_id] = {}
-
-        if cuenta_id not in ChatbotService.user_contexts[sender_id]:
-            ChatbotService.user_contexts[sender_id][cuenta_id] = {"productos": []}
-
-        context = ChatbotService.user_contexts[sender_id][cuenta_id]
-        productos = context["productos"]
-
-        existing_product = next(
-            (p for p in productos if p["producto"] == producto), None
-        )
-
-        if existing_product:
-            existing_product["cantidad"] += cantidad
-        else:
-            productos.append({"producto": producto, "cantidad": cantidad})
-
-        logging.info(f"Contexto actualizado para sender_id {sender_id}, cuenta_id {cuenta_id}: {context}")
 
 
     @staticmethod
@@ -656,56 +573,6 @@ class ChatbotService:
         except Exception as e:
             raise ValueError(f"Error al procesar la entrada de productos: {e}")
         return productos
-
-
-    @staticmethod
-    async def create_order_from_context(sender_id: str, cuenta_id: int, db: Session, context: dict):
-        if not context or not context.get("productos"):
-            return {"respuesta": "No hay productos en tu orden. Por favor, agrega productos antes de confirmar."}
-        
-        if context.get("fecha_inicio_orden") is None:
-            context["fecha_inicio_orden"] = datetime.now()
-        
-        if "orden_flujo_aislado" not in context:
-            context["orden_flujo_aislado"] = False
-
-        telefono = context.get("telefono")
-        if not telefono:
-            return {"respuesta": "Por favor, proporcione su número de teléfono para completar la orden."}
-
-        nombre = context.get("nombre", "Cliente")
-        apellido = context.get("apellido", "Apellido")
-        productos = context["productos"]
-        cantidad_cajas = sum([p["cantidad"] for p in productos])
-        ciudad = context.get("ciudad", "N/A")
-        direccion = context.get("direccion", "N/A")
-        email = context.get("email", "N/A")
-
-        order_data = schemas.OrderCreate(
-            phone=telefono,
-            email=email,
-            address=direccion,
-            producto=productos,
-            cantidad_cajas=cantidad_cajas,
-            ciudad=ciudad,
-            ad_id=context.get("ad_id", "N/A"),
-        )
-        try:
-            result = await OrderService.create_order(order_data, db, nombre, apellido)
-            logging.info(f"Orden creada con éxito: {result}")
-            del ChatbotService.user_contexts[sender_id][cuenta_id]
-            return {
-                "respuesta": (
-                    f"✅ Su pedido ya quedó registrado:\n"
-                    f"📦 Productos: {cantidad_cajas} artículos\n"
-                    f"📞 Teléfono: {telefono}\n"
-                    f"📍 Ciudad: {ciudad}\n"
-                    "El repartidor se comunicará contigo entre 8 AM y 9 PM para confirmar la entrega. ¡Gracias por tu compra! 😊"
-                )
-            }
-        except Exception as e:
-            logging.error(f"Error al registrar la orden desde el contexto: {e}")
-            return {"respuesta": f"❌ Error al registrar tu orden. Detalles: {e}"}
 
 
     @staticmethod
@@ -754,10 +621,6 @@ class ChatbotService:
         logging.info(f"Productos detectados: {productos_detectados}")
         return productos_detectados
 
-
-
-
-
     @staticmethod
     def load_product_embeddings(db: Session):
         """
@@ -774,6 +637,33 @@ class ChatbotService:
         ChatbotService.product_embeddings = dict(zip(nombres_productos, embeddings))
         logging.info(f"Embeddings de productos cargados: {list(ChatbotService.product_embeddings.keys())}")
 
+    @staticmethod
+    async def check_similar_question(question: str, db: Session) -> bool:
+        """
+        Verifica si una pregunta es suficientemente similar a alguna pregunta en la base de datos.
+        Permite que `ask_question` procese la pregunta si la similitud es mayor o igual al 80%.
+        """
+        faqs = crud_faq.get_all_faqs(db)
+
+        if not faqs:
+            return False
+
+        faq_questions = [faq.question for faq in faqs]
+        question_embedding = model.encode(question)
+        embeddings = model.encode(faq_questions)
+
+        if not embeddings.size:
+            return False
+        
+        similarities = util.cos_sim(question_embedding, embeddings)[0]
+        threshold = 0.80  
+
+        max_similarity_index = similarities.argmax().item()
+        if similarities[max_similarity_index] >= threshold:
+            return faq_questions[max_similarity_index]
+
+        return False
+
 
     @staticmethod
     def get_product_list(db: Session) -> list:
@@ -786,7 +676,6 @@ class ChatbotService:
     def clear_product_cache():
         ChatbotService.product_list_cache = None 
 
-
     @staticmethod
     def cache_response(question, response):
         cache.set(question, json.dumps(response), ex=3600) 
@@ -798,7 +687,6 @@ class ChatbotService:
             return json.loads(cached_response)
         return None
 
-
     @staticmethod
     def get_response(question):
         cached_response = ChatbotService.get_cached_response(question)
@@ -808,10 +696,6 @@ class ChatbotService:
             response = client.chat.completions.create(...)  
             ChatbotService.cache_response(question, response)
             return response
-
-
-
-
 
 def get_delivery_day_response():
     """Determina el día de entrega basado en el día de la semana."""
@@ -890,27 +774,8 @@ class FacebookService:
                 status_code=response.status_code, detail=response.json()
             )
 
-
 class FacebookService:
     API_KEYS_FILE = "api_keys.json"
-    model = SentenceTransformer("all-MiniLM-L6-v2")
-    @staticmethod
-    def analyze_order_without_ai(message_text: str, productos_nombres: list) -> dict:
-        message_embedding = FacebookService.model.encode(message_text)
-        productos_embeddings = FacebookService.model.encode(productos_nombres)
-        similarities = util.cos_sim(message_embedding, productos_embeddings)[0]
-
-        max_similarity_index = similarities.argmax().item()
-        max_similarity_value = similarities[max_similarity_index]
-        threshold = 0.5
-
-        if max_similarity_value >= threshold:
-            cantidad_match = re.search(r"(\d+)\s*cajas?", message_text)
-            cantidad = int(cantidad_match.group(1)) if cantidad_match else 1
-            return {"is_order": True, "producto": productos_nombres[max_similarity_index], "cantidad": cantidad}
-        
-        return {"is_order": False}
-
     @staticmethod
     def get_api_key_by_page_id(page_id: str) -> str:
         """
@@ -924,6 +789,436 @@ class FacebookService:
             return None
 
         return api_key
+    
+    @staticmethod
+    def process_product_and_assign_price(message_text: str, db: Session, cuenta_id: int):
+        """
+        Procesa el mensaje para extraer productos y cantidades, compararlos con la base de datos,
+        y asignar el precio correspondiente a cada producto detectado.
+        """
+        # Obtiene los productos disponibles y sus precios para la cuenta
+        productos_disponibles = crud_producto.get_productos_by_cuenta(db, cuenta_id)
+        productos_nombres = {p["producto"].lower(): p["precio"] for p in productos_disponibles}
+
+        # Extrae productos y cantidades del mensaje
+        productos_detectados = ChatbotService.extract_product_and_quantity(message_text, db)
+
+        # Asigna precios a los productos detectados
+        for producto in productos_detectados:
+            nombre_producto = producto["producto"].lower()
+            if nombre_producto in productos_nombres:
+                producto["precio"] = productos_nombres[nombre_producto] * producto["cantidad"]
+            else:
+                producto["precio"] = 0  # Producto no encontrado en la base de datos
+
+        return productos_detectados
+
+
+
+    @staticmethod
+    def reset_context(context: dict, cuenta_id: str, sender_id: str):
+        """
+        Resetea los valores del contexto a su estado inicial.
+        """
+        keys_to_none = ["direccion", "telefono", "ciudad", "productos"]
+        keys_to_false = ["mensaje_predeterminado_enviado", "mensaje_faltante_enviado", 
+                        "mensaje_creacion_enviado", "mensaje_creacion_enviado2", 
+                        "orden_creada", "orden_flujo_aislado"]
+        for key in keys_to_none:
+            context[key] = None 
+    
+        for key in keys_to_false:
+            context[key] = False  
+        context["fase_actual"] = "espera"
+
+        ChatbotService.user_contexts[cuenta_id][sender_id] = context
+        print(f"Contexto reseteado para cuenta {cuenta_id}, usuario {sender_id}: {context}")
+
+    
+    @staticmethod
+    async def process_event_with_context(event, cuenta_id: int, api_key: str, db: Session):
+        """
+        Procesa un evento individual de Facebook Messenger.
+        """
+        sender_id = event["sender"]["id"]
+        message_id = event.get("message", {}).get("mid")
+        message_text = event.get("message", {}).get("text", "").strip()
+        is_audio = "audio" in event.get("message", {}).get("attachments", [{}])[0].get("type", "")
+
+        
+
+        if is_audio:
+            await FacebookService.send_text_message(
+                sender_id,
+                "Lo siento, no puedo procesar audios. Por favor, escribe tu mensaje para que pueda ayudarte.",
+                api_key
+            )
+            return
+
+        if sender_id not in ChatbotService.initial_message_sent:
+            ChatbotService.initial_message_sent[sender_id] = False
+
+        mensaje_inicial_enviado = ChatbotService.initial_message_sent[sender_id]
+        if not mensaje_inicial_enviado:
+            db_response = "\n".join(
+                [f"{prod['producto']}: Precio {prod['precio']} pesos" for prod in crud_producto.get_productos_by_cuenta(db, cuenta_id)]
+            )
+            primer_producto = ChatbotService.extract_product_from_initial_message(message_text)
+            response = ChatbotService.handle_first_message(sender_id, db_response, primer_producto)
+            await FacebookService.send_text_message(sender_id, response, api_key)
+            ChatbotService.initial_message_sent[sender_id] = True
+            return
+
+        if cuenta_id not in ChatbotService.user_contexts:
+            ChatbotService.user_contexts[cuenta_id] = {}
+
+        user_context = ChatbotService.user_contexts[cuenta_id].get(sender_id, {})
+        if not user_context:
+            user_profile = FacebookService.get_user_profile(sender_id, api_key)
+            ChatbotService.user_contexts[cuenta_id][sender_id] = {
+                "nombre": user_profile.get("first_name", "Cliente"),
+                "apellido": user_profile.get("last_name", "Apellido"),
+                "productos": [],
+                "telefono": None,
+                "ad_id": None,
+                "intencion_detectada": None,
+                "ciudad": None,
+                "direccion": None,
+                "fase_actual": "iniciar_orden" if any(phrase in message_text for phrase in order_intent_phrases) else "espera",
+                "fecha_inicio_orden": datetime.now(),
+                "orden_flujo_aislado": False,
+                "mensaje_predeterminado_enviado": False,
+                "pregunta": message_text,
+                "orden_creada": False,
+                "mensaje_faltante_enviado": False,
+                "mensaje_creacion_enviado": False,
+                "mensaje_creacion_enviado2": False,
+                "saltear_mensaje_faltante": False
+            }
+
+        context = ChatbotService.user_contexts[cuenta_id][sender_id]
+        telefono = ChatbotService.extract_phone_number(message_text)
+        if telefono:
+            context["telefono"] = telefono
+            context["orden_flujo_aislado"] = True
+            FacebookService.handle_context_logic(context, sender_id, cuenta_id, api_key, db, message_text)
+            
+
+        productos_detectados = ChatbotService.extract_product_and_quantity(message_text, db)
+        if productos_detectados:
+            for producto in productos_detectados:
+                producto_nombre = producto["producto"]
+                producto_en_inventario = crud_producto.get_producto_por_nombre(db, cuenta_id, producto_nombre)
+                if not producto_en_inventario:
+                    await FacebookService.send_text_message(
+                        sender_id,
+                        f"Lo siento, no tenemos '{producto_nombre}' en el inventario.",
+                        api_key
+                    )
+                    return
+            context["productos"] = productos_detectados
+            context["orden_flujo_aislado"] = True
+
+        if any(phrase in message_text for phrase in order_intent_phrases):
+            context["orden_flujo_aislado"] = True
+
+        ChatbotService.user_contexts[cuenta_id][sender_id] = context
+        await FacebookService.handle_context_logic(context, sender_id, cuenta_id, api_key, db, message_text)
+
+    @staticmethod
+    async def handle_context_logic(context, sender_id, cuenta_id, api_key, db, message_text):
+        print("Iniciando handle_context_logic")
+        print(f"Contexto inicial: {context}")
+        
+        if context["orden_flujo_aislado"]:
+            print("Orden en flujo aislado detectada")
+            if not context.get("mensaje_predeterminado_enviado"):
+                response_text = (
+                    "Para agendar tu pedido solo necesito los siguientes datos:\n"
+                    "• Tu número de teléfono\n"
+                    "• Dirección con número de casa\n"
+                    "• Ciudad en la que vives\n"
+                    "• Número de cajas que necesitas"
+                )
+                await FacebookService.send_text_message(sender_id, response_text, api_key)
+                context["mensaje_predeterminado_enviado"] = True
+                print("Mensaje predeterminado enviado, contexto actualizado")
+
+            similar_question = await ChatbotService.check_similar_question(message_text, db)
+            if similar_question:
+                try:
+                    response_data = await ChatbotService.ask_question(similar_question, sender_id, api_key, db)
+                    response_text = response_data.get("respuesta", None)
+                    if response_text:
+                        await FacebookService.send_text_message(sender_id, response_text, api_key)
+                        print(f"Mensaje enviado para similar_question: {response_text}")
+                    else:
+                        print(f"Respuesta de ask_question está vacía: {response_data}")
+                except Exception as e:
+                    logging.error(f"Error al procesar similar_question: {str(e)}")
+                    print(f"Error en ask_question: {str(e)}")
+
+                
+            ciudad = ChatbotService.extract_city_from_text(message_text, db)
+            if ciudad:
+                message_text = message_text.replace(ciudad, "")
+            direccion = ChatbotService.extract_address_from_text(message_text, cuenta_id, sender_id, db)
+            telefono = ChatbotService.extract_phone_number(message_text)
+            productos_detectados = FacebookService.process_product_and_assign_price(message_text, db, cuenta_id)
+            if not productos_detectados:
+                primer_producto = ChatbotService.extract_product_from_initial_message(message_text)
+                productos_detectados = [{
+                    "producto": primer_producto,
+                    "cantidad": 1
+                }]
+
+            print(f"Datos extraídos del mensaje:")
+            print(f"Ciudad: {ciudad}")
+            print(f"Dirección: {direccion}")
+            print(f"Teléfono: {telefono}")
+            print(f"Productos detectados: {productos_detectados}")
+
+            datos_extraidos = {
+                "ciudad": ciudad,
+                "direccion": direccion,
+                "telefono": telefono,
+                "productos": productos_detectados
+            }
+
+            for key, value in datos_extraidos.items():
+                if value and context.get(key) != value:
+                    context[key] = value
+                    print(f"Actualizado {key} en contexto: {value}")
+                    logging.info(f"Actualizado {key}: {value}")
+            ChatbotService.user_contexts[cuenta_id][sender_id] = context
+            print(f"Contexto actualizado después de extraer datos: {context}")
+            await asyncio.sleep(100)
+
+            if ciudad == "No vendemos en esta ciudad. Tu pedido ha sido cancelado.":
+                        print("Ciudad no válida detectada")
+                        cancel_text = (
+                            "Lamentablemente, no vendemos en tu ciudad. Por favor, verifica si tienes otra dirección válida."
+                        )
+                        await FacebookService.send_text_message(sender_id, cancel_text, api_key)
+                        FacebookService.reset_context(context, cuenta_id, sender_id)
+                        return
+
+            await asyncio.sleep(20)  
+
+            datos_faltantes = []
+            if not context.get("telefono"):
+                datos_faltantes.append("número de teléfono")
+            if not context.get("direccion"):
+                datos_faltantes.append("dirección con número de casa")
+            if not context.get("ciudad"):
+                datos_faltantes.append("ciudad")
+            if not context.get("productos"):
+                datos_faltantes.append("número de cajas que necesitas")
+
+            print(f"Datos faltantes detectados: {datos_faltantes}")
+
+            if datos_faltantes and not context.get("mensaje_faltante_enviado") and context["orden_flujo_aislado"]:
+                reminder_text = (
+                    "Hola, aún no hemos recibido toda la información. Por favor, proporciona los siguientes datos para continuar:\n"
+                    f"- {', '.join(datos_faltantes)}"
+                )
+                await FacebookService.send_text_message(sender_id, reminder_text, api_key)
+                context["mensaje_faltante_enviado"] = True
+                print("Mensaje de datos faltantes enviado, contexto actualizado:", context)
+                return
+
+            elif context.get("telefono") and context.get("direccion") and context.get("ciudad") and context.get("productos") and context["orden_flujo_aislado"]:
+                            print("Todos los datos necesarios están presentes")
+                            if not context.get("orden_creada"):
+                                print("Iniciando creación de orden con contexto:", context)
+                                try:
+                                    if ciudad == "No vendemos en esta ciudad. Tu pedido ha sido cancelado.":
+                                        cancel_text = (
+                                            "Lamentablemente, no vendemos en tu ciudad. Por favor, verifica si tienes otra dirección válida."
+                                        )
+                                        await FacebookService.send_text_message(sender_id, cancel_text, api_key)
+                                        FacebookService.reset_context(context, cuenta_id, sender_id)
+                                        return
+                            
+                                    nombre = context.get("nombre", "Cliente")
+                                    apellido = context.get("apellido", "Apellido")
+                                    productos = context["productos"]
+                                    ciudad = context.get("ciudad", "N/A")
+                                    direccion = context.get("direccion", "N/A")
+                                    cantidad_cajas = sum([p["cantidad"] for p in productos])
+                                    telefono = context.get("telefono")
+                                    email = context.get("email", "N/A")
+
+                                    print(f"Datos para crear orden:")
+                                    print(f"Nombre: {nombre}")
+                                    print(f"Apellido: {apellido}")
+                                    print(f"Productos: {productos}")
+                                    print(f"Ciudad: {ciudad}")
+                                    print(f"Dirección: {direccion}")
+                                    print(f"Cantidad cajas: {cantidad_cajas}")
+                                    print(f"Teléfono: {telefono}")
+                                    print(f"Email: {email}")
+
+                                    productos_info = crud_producto.get_productos_by_cuenta(db, cuenta_id)
+
+                                    for producto in productos:
+                                        producto_nombre = f"{producto['producto']} ({producto['cantidad']})".lower()
+                                        producto["precio"] = next(
+                                            (prod['precio'] for prod in productos_info if prod['producto'].lower() == producto_nombre),
+                                            0  
+                                        )
+                                        print(f"Precio asignado para {producto_nombre}: {producto['precio']}")
+                                       
+
+                                    cantidad_cajas = sum([p["cantidad"] for p in productos])
+                                    ChatbotService.user_contexts[cuenta_id][sender_id] = context
+
+                                    print(f'productos: {productos}')
+                                    print(f'cantidad_cajas: {cantidad_cajas}')
+                                    print(f'producto nombre: {producto_nombre}')
+                                    
+                                
+                                    order_data = schemas.OrderCreate(
+                                        phone=telefono,
+                                        email=email,
+                                        address=direccion,
+                                        producto=productos,
+                                        cantidad_cajas=cantidad_cajas,
+                                        ciudad=ciudad,
+                                        ad_id=context.get("ad_id", "N/A"),
+                                    )
+
+                                    crud_order = CRUDOrder()
+                                    nueva_orden = crud_order.create_order(db=db, order=order_data, nombre=nombre, apellido=apellido)
+
+                                    respuesta = (
+                                        f"✅ Su pedido ya quedó registrado:\n"
+                                        f"📦 Sus productos llegarán pronto!\n"
+                                        f"📞 Teléfono: {telefono}\n"
+                                        f"📍 Ciudad: {ciudad}\n"
+                                        "El repartidor se comunicará contigo entre 8 AM y 9 PM para confirmar la entrega. ¡Gracias por tu compra! 😊"
+                                    )
+                                    await FacebookService.send_text_message(sender_id, respuesta, api_key)
+                                    FacebookService.reset_context(context, cuenta_id, sender_id)
+                                    print(f'Orden creada exitosamente, contexto actualizado: {context}')
+                                    logging.info(f"Orden creada exitosamente: {nueva_orden}")
+                                    return
+                                except Exception as e:
+                                    logging.error(f"Error al crear la orden: espere porfavor")
+                                    print(f"Error al crear la orden: {str(e)}")
+
+            await asyncio.sleep(120)
+
+            if not context.get("telefono") and context["orden_flujo_aislado"]:
+                print("Falta número de teléfono, cancelando orden")
+                cancel_text = (
+                    "No podemos procesar tu pedido porque falta el número de teléfono. "
+                    "Por favor, proporciona toda la información necesaria para continuar."
+                )
+                await FacebookService.send_text_message(sender_id, cancel_text, api_key)
+                logging.info("Pedido rechazado por falta de número de teléfono.")
+                FacebookService.reset_context(context, cuenta_id, sender_id)
+                return
+
+            if context.get("telefono") and not context.get("productos") and context["orden_flujo_aislado"]:
+                print("Falta información de productos, cancelando orden")
+                cancel_text = (
+                    "Lamentablemente, no hemos recibido información suficiente sobre los productos. "
+                    "El pedido no se ha completado."
+                )
+                await FacebookService.send_text_message(sender_id, cancel_text, api_key)
+                FacebookService.reset_context(context, cuenta_id, sender_id)
+                return
+
+            elif context.get("telefono") and context.get("productos") and any(p["cantidad"] > 0 for p in context["productos"]) and context["orden_flujo_aislado"]:
+                print("Procesando orden con teléfono y productos válidos")
+                if not context.get("orden_creada"):
+                    try:
+                        if ciudad == "No vendemos en esta ciudad. Tu pedido ha sido cancelado.":
+                            cancel_text = (
+                                "Lamentablemente, no vendemos en tu ciudad. Por favor, verifica si tienes otra dirección válida."
+                            )
+                            await FacebookService.send_text_message(sender_id, cancel_text, api_key)
+                            FacebookService.reset_context(context, cuenta_id, sender_id)
+                            print("Orden cancelada por ciudad inválida, contexto:", context)
+                            return
+                            
+                        nombre = context.get("nombre", "Cliente")
+                        apellido = context.get("apellido", "Apellido")
+                        productos = context["productos"]
+                        cantidad_cajas = sum([p["cantidad"] for p in productos])
+                        ciudad = context.get("ciudad", "N/A")
+                        direccion = context.get("direccion", "N/A")
+                        telefono = context.get("telefono")
+                        email = context.get("email", "N/A")
+
+                        print(f"Datos finales para crear orden:")
+                        print(f"Nombre: {nombre}")
+                        print(f"Apellido: {apellido}")
+                        print(f"Productos: {productos}")
+                        print(f"Ciudad: {ciudad}")
+                        print(f"Dirección: {direccion}")
+                        print(f"Cantidad cajas: {cantidad_cajas}")
+                        print(f"Teléfono: {telefono}")
+                        print(f"Email: {email}")
+
+                        productos_info = crud_producto.get_productos_by_cuenta(db, cuenta_id)
+
+                        for producto in productos:
+                            producto_nombre = f"{producto['producto']} ({producto['cantidad']})".lower()
+                            producto["precio"] = next(
+                                (prod['precio'] for prod in productos_info if prod['producto'].lower() == producto_nombre),
+                                0  
+                            )
+                            print(f"Precio asignado para {producto_nombre}: {producto['precio']}")
+
+                        cantidad_cajas = sum([p["cantidad"] for p in productos])
+                        ChatbotService.user_contexts[cuenta_id][sender_id] = context
+
+                        print(f'productos: {productos}')
+                        print(f'cantidad_cajas: {cantidad_cajas}')
+
+                        order_data = schemas.OrderCreate(
+                            phone=telefono,
+                            email=email,
+                            address=direccion,
+                            producto=productos,
+                            cantidad_cajas=cantidad_cajas,
+                            ciudad=ciudad,
+                            ad_id=context.get("ad_id", "N/A"),
+                        )
+
+                        crud_order = CRUDOrder()
+                        nueva_orden = crud_order.create_order(db=db, order=order_data, nombre=nombre, apellido=apellido)
+
+                        respuesta = (
+                            f"✅ Su pedido ya quedó registrado:\n"
+                            f"📦 Sus productos llegarán pronto!\n"
+                            f"📞 Teléfono: {telefono}\n"
+                            f"📍 Ciudad: {ciudad}\n"
+                            "El repartidor se comunicará contigo entre 8 AM y 9 PM para confirmar la entrega. ¡Gracias por tu compra! 😊"
+                        )
+                        await FacebookService.send_text_message(sender_id, respuesta, api_key)
+                        FacebookService.reset_context(context, cuenta_id, sender_id)
+                        print(f'Orden creada exitosamente, contexto final: {context}')
+                        logging.info(f"Orden creada exitosamente: {nueva_orden}")
+                        return
+
+                    except Exception as e:
+                        logging.error(f"Error al crear la orden: {e}")
+                        print(f"Error al crear la orden: {str(e)}")
+        
+        else:
+            print("Procesando mensaje fuera del flujo de orden")
+            response_data = await ChatbotService.ask_question(
+                question=message_text,
+                sender_id=sender_id,
+                cuenta_id=cuenta_id,
+                db=db,
+            )
+            response_text = response_data.get("respuesta", "Lo siento, no entendí tu mensaje.")
+            await FacebookService.send_text_message(sender_id, response_text, api_key)
+            print("Mensaje procesado y respuesta enviada")
 
     @staticmethod
     async def facebook_webhook(request: Request, db: Session = Depends(get_db)):
@@ -933,12 +1228,12 @@ class FacebookService:
         try:
             data = await request.json()
             logging.info(f"Payload recibido: {data}")
+            if "entry" not in data or not data["entry"]:
+                logging.error("Payload inválido: Falta la clave 'entry' o está vacía")
+                raise HTTPException(status_code=400, detail="Entrada inválida en el payload")
         except Exception as e:
             logging.error(f"Error procesando JSON del webhook: {str(e)}")
             raise HTTPException(status_code=400, detail="Error en el payload recibido")
-
-        if "entry" not in data:
-            raise HTTPException(status_code=400, detail="Entrada inválida en el payload")
 
         for entry in data["entry"]:
             page_id = entry.get("id")
@@ -948,60 +1243,29 @@ class FacebookService:
                 logging.warning(f"No se encontró ninguna cuenta para page_id {page_id}")
                 continue
 
-            cuenta_id = cuenta.id 
+            cuenta_id = cuenta.id
             api_key = FacebookService.get_api_key_by_page_id(page_id)
 
             if not api_key:
                 logging.error(f"No se encontró una API Key para la página con ID {page_id}")
                 continue
-            
+
             for event in entry.get("messaging", []):
                 message_id = event.get("message", {}).get("mid")
+                sender_id = event["sender"]["id"]
+
+                if not message_id or not sender_id:
+                    logging.warning(f"Evento inválido: Falta 'message_id' o 'sender_id'.")
+                    continue
+
                 if message_id in processed_message_ids:
                     logging.info(f"Mensaje duplicado detectado: {message_id}. Ignorando.")
-                    continue 
-
-                processed_message_ids.add(message_id) 
-
+                    continue
+                processed_message_ids.add(message_id)
                 if "message" in event and not event.get("message", {}).get("is_echo"):
-                    sender_id = event["sender"]["id"]  
-                    message_text = event["message"].get("text", "").strip()
-                    api_keys = FacebookService.load_api_keys()
-                    api_key = api_keys.get(page_id)
-                    if not api_key:
-                        logging.error(f"No se encontró una API Key para la página con ID {page_id}")
-                        continue
+                    await FacebookService.process_event_with_context(event, cuenta_id, api_key, db)
 
-
-                    if not ChatbotService.user_contexts.get(sender_id, {}).get(cuenta_id):
-                        user_profile = FacebookService.get_user_profile(sender_id, api_key)
-                        if user_profile:
-                            ChatbotService.user_contexts.setdefault(sender_id, {}).update({
-                                cuenta_id: {
-                                    "nombre": user_profile.get("first_name"),
-                                    "apellido": user_profile.get("last_name"),
-                                    "productos": [],
-                                    "telefono": None,
-                                    "ad_id": None,
-                                    "intencion_detectada": None,
-                                }
-                            })
-
-                    try:
-                        response_data = await ChatbotService.ask_question(
-                            question=message_text,
-                            sender_id=sender_id,
-                            cuenta_id=cuenta_id,
-                            db=db,
-                        )
-                        response_text = response_data.get("respuesta", "Lo siento, no entendí tu mensaje.")
-                        
-                        logging.info(f"Respuesta enviada al usuario {sender_id}: {response_text}")
-                        FacebookService.send_text_message(sender_id, response_text, api_key)
-                    except Exception as e:
-                        logging.error(f"Error procesando el mensaje: {str(e)}")
-        return {"status": "ok"}
-
+        return {"status": "OK"}
 
 
 
@@ -1009,23 +1273,28 @@ class FacebookService:
     def get_user_profile(user_id: str, api_key: str):
         """
         Obtiene el perfil de un usuario de Facebook basado en la API Key específica.
+        Si ocurre un error o los campos no están disponibles, se devuelven valores predeterminados.
         """
         url = f"https://graph.facebook.com/{user_id}?fields=first_name,last_name&access_token={api_key}"
-        response = requests.get(url)
-        if response.status_code == 200:
-            return response.json()
-        else:
-            logging.error(f"Error al obtener el perfil del usuario: {response.status_code}, {response.text}")
-            return {
-                "first_name": "Cliente",
-                "last_name": "Apellido"
-            }
+        try:
+            response = requests.get(url, timeout=10) 
+            response.raise_for_status()  
+            data = response.json()
+            first_name = data.get("first_name", "Cliente")
+            last_name = data.get("last_name", "Apellido")
+            return {"first_name": first_name, "last_name": last_name}
 
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Error de conexión al obtener el perfil del usuario: {e}")
+        except ValueError as e:
+            logging.error(f"Error al procesar la respuesta JSON: {e}")
+        except Exception as e:
+            logging.error(f"Error inesperado al obtener el perfil del usuario: {e}")
 
-
+        return {"first_name": "Cliente", "last_name": "Apellido"}
 
     @staticmethod
-    def send_image_message(recipient_id: str, image_url: str):
+    async def send_image_message(recipient_id: str, image_url: str):
         url = f"{settings.FACEBOOK_GRAPH_API_URL}/me/messages"
         headers = {"Content-Type": "application/json"}
         data = {
@@ -1048,13 +1317,30 @@ class FacebookService:
 
 
     @staticmethod
-    def send_text_message(recipient_id: str, text: str, api_key: str):
+    async def send_text_message(recipient_id: str, text: str, api_key: str, cooldown: int = 60):
         """
-        Envía un mensaje de texto al usuario en Facebook Messenger.
+        Envía un mensaje de texto al usuario en Facebook Messenger, evitando duplicados en un período corto.
+        :param recipient_id: ID del receptor en Messenger.
+        :param text: Contenido del mensaje.
+        :param api_key: Clave de acceso a la API de Facebook.
+        :param cooldown: Tiempo en segundos para evitar mensajes duplicados.
         """
         if not text or not text.strip():
             logging.error("Intento de enviar un mensaje vacío. El mensaje no será enviado.")
             raise HTTPException(status_code=400, detail="El mensaje no puede estar vacío.")
+
+        message_key = f"{recipient_id}:{text}"
+
+        current_time = time.time()
+        with recent_messages_lock:  
+            if message_key in recent_messages:
+                last_sent_time = recent_messages[message_key]
+                if current_time - last_sent_time < cooldown:
+                    logging.info(f"Mensaje duplicado detectado para {recipient_id}. No se enviará.")
+                    return {"status": "duplicate", "message": "Mensaje ya enviado recientemente."}
+
+
+            recent_messages[message_key] = current_time
 
         url = "https://graph.facebook.com/v12.0/me/messages"
         headers = {"Content-Type": "application/json"}
@@ -1068,8 +1354,18 @@ class FacebookService:
                 status_code=response.status_code,
                 detail=f"Error al enviar el mensaje de texto: {response.json()}",
             )
-        return response.json()
 
+        logging.info(f"Mensaje enviado a {recipient_id}: {text}")
+        with recent_messages_lock:
+            keys_to_remove = [
+                key for key, timestamp in recent_messages.items()
+                if current_time - timestamp > cooldown
+            ]
+            for key in keys_to_remove:
+                del recent_messages[key]
+
+        return response.json()
+    
     @staticmethod
     def send_message_or_image(recipient_id: str, answer: str):
         image_url_pattern = r"(https?://[^\s]+(\.jpg|\.jpeg|\.png|\.gif))"

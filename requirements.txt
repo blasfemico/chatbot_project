@@ -22,3 +22,5 @@ openpyxl
 cachetools
 redis
 unidecode
+Cython
+stanza

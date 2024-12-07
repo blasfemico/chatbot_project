@@ -186,39 +186,45 @@ class CRUDCuentaProducto:
 class CRUDOrder:
     @staticmethod
     def get_delivery_day_message():
-        today = datetime.today().weekday() 
+        today = datetime.today().weekday()
         delivery_day = "lunes" if today == 5 else "mañana"
         return f"Su pedido se entregará el {delivery_day}."
     
     @staticmethod
     def serialize_products(productos: list[ProductInput]) -> str:
+        """Convierte una lista de ProductInput a JSON."""
         try:
             return json.dumps([p.dict() for p in productos])
         except Exception as e:
             raise ValueError(f"Error al serializar productos: {e}")
 
     @staticmethod
-    def deserialize_products(productos_str: str) -> list[ProductInput]:
+    def deserialize_products(productos_str: str) -> list[dict]:
+        """Convierte un JSON de productos a una lista de diccionarios."""
         try:
-            productos = json.loads(productos_str)
-            return [ProductInput(**p) for p in productos]
+            return json.loads(productos_str)
         except Exception as e:
             raise ValueError(f"Error al deserializar productos: {e}")
-        
 
-    
     def create_order(self, db: Session, order: schemas.OrderCreate, nombre: str, apellido: str):
+        """Crea una nueva orden en la base de datos."""
         try:
-            if isinstance(order.producto, str):
+            if isinstance(order.producto, list):
+                order.producto = [
+                    p.dict() if hasattr(p, "dict") else p
+                    for p in order.producto
+                ]
+            elif isinstance(order.producto, str):
                 try:
                     order.producto = json.loads(order.producto)
                 except json.JSONDecodeError:
                     raise ValueError("El campo 'producto' debe ser una lista válida o una cadena JSON correcta.")
+
             new_order = Order(
                 phone=order.phone,
                 email=order.email or "N/A",
                 address=order.address or "N/A",
-                producto=json.dumps(order.producto), 
+                producto=json.dumps(order.producto),
                 ciudad=order.ciudad or "N/A",
                 cantidad_cajas=", ".join(
                     [str(p["cantidad"]) for p in order.producto]
@@ -237,9 +243,8 @@ class CRUDOrder:
             logging.error(f"Error al crear la orden: {e}")
             raise HTTPException(status_code=500, detail="Error al crear la orden.")
 
-
-
     def delete_order(self, db: Session, order_id: int):
+        """Elimina una orden por su ID."""
         try:
             logging.info(f"Eliminando la orden con ID {order_id}.")
             order = db.query(Order).filter(Order.id == order_id).first()
@@ -257,76 +262,75 @@ class CRUDOrder:
             raise HTTPException(status_code=500, detail="Error al eliminar la orden.")
 
     def get_order_by_id(self, db: Session, order_id: int):
+        """Obtiene una orden por su ID."""
         try:
             order = db.query(Order).filter(Order.id == order_id).first()
             if not order:
                 raise HTTPException(status_code=404, detail="Orden no encontrada.")
 
-            order_data = {
+            productos = self.deserialize_products(order.producto)
+
+            return {
                 "id": order.id,
                 "phone": order.phone or "N/A",
                 "email": order.email or "N/A",
                 "address": order.address or "N/A",
                 "ciudad": order.ciudad or "N/A",
-                "producto": self.deserialize_products(order.producto),
+                "producto": productos,  
                 "cantidad_cajas": order.cantidad_cajas or "0",
                 "nombre": order.nombre or "N/A",
                 "apellido": order.apellido or "N/A",
                 "ad_id": order.ad_id or "N/A",
             }
-
-            return order_data
-
         except Exception as e:
             logging.error(f"Error al obtener la orden con ID {order_id}: {str(e)}")
             raise HTTPException(status_code=500, detail="Error al obtener la orden.")
 
+
     def get_all_orders(self, db: Session, skip: int = 0, limit: int = 10):
+        """Obtiene todas las órdenes con los productos correctamente deserializados."""
         logging.info(f"Obteniendo todas las órdenes. Saltar: {skip}, Límite: {limit}")
         try:
-            orders_query = db.execute(
-                select(
-                    Order.id,
-                    Order.phone,
-                    Order.email,
-                    Order.address,
-                    Order.producto,
-                    Order.cantidad_cajas,
-                    Order.ciudad,
-                    Order.nombre,
-                    Order.apellido,
-                    Order.ad_id
-                ).offset(skip).limit(limit)
-            )
-
+            orders_query = db.query(Order).offset(skip).limit(limit).all()
             orders = []
-            for order in orders_query.fetchall():
-                try:
-                    producto = self.deserialize_products(order["producto"]) if order["producto"] else []
-                except json.JSONDecodeError:
-                    logging.error(f"Error al deserializar producto: {order['producto']}")
-                    producto = []
+
+            for order in orders_query:
+                productos = self.deserialize_products(order.producto)
 
                 orders.append({
-                    "id": order["id"],
-                    "phone": order["phone"] or "N/A",
-                    "email": order["email"] or "N/A",
-                    "address": order["address"] or "N/A",
-                    "ciudad": order["ciudad"] or "N/A",
-                    "producto": producto,
-                    "cantidad_cajas": order["cantidad_cajas"] or "0",
-                    "nombre": order["nombre"] or "N/A",
-                    "apellido": order["apellido"] or "N/A",
-                    "ad_id": order["ad_id"] or "N/A",
+                    "id": order.id,
+                    "phone": order.phone or "N/A",
+                    "email": order.email or "N/A",
+                    "address": order.address or "N/A",
+                    "ciudad": order.ciudad or "N/A",
+                    "producto": productos,  # Lista de diccionarios con `precio`
+                    "cantidad_cajas": order.cantidad_cajas or "0",
+                    "nombre": order.nombre or "N/A",
+                    "apellido": order.apellido or "N/A",
+                    "ad_id": order.ad_id or "N/A",
                 })
 
             return orders
-
         except Exception as e:
             logging.error(f"Error al obtener las órdenes: {str(e)}")
             raise HTTPException(status_code=500, detail="Error al obtener las órdenes.")
 
 
+
+
+
+    def delete_all_orders(self, db: Session) -> dict:
+        """Elimina todas las órdenes de la base de datos."""
+        try:
+            logging.info("Eliminando todas las órdenes.")
+            deleted_count = db.query(Order).delete()
+            db.commit()
+            logging.info(f"Se eliminaron {deleted_count} órdenes.")
+            return {"message": f"Se eliminaron {deleted_count} órdenes correctamente."}
+        except Exception as e:
+            logging.error(f"Error al eliminar todas las órdenes: {str(e)}")
+            db.rollback()
+            raise HTTPException(status_code=500, detail="Error al eliminar todas las órdenes.")
 
 class CRUDCuenta:
     def create_cuenta(self, db: Session, cuenta_data: CuentaCreate):
@@ -448,18 +452,15 @@ class CRUDCiudad:
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
-
+    def delete_ciudad(self, db: Session, ciudad_id: int):
+        ciudad = db.query(Ciudad).filter(Ciudad.id == ciudad_id).first()
+        if ciudad:
+            db.delete(ciudad)
+            db.commit()
+        return ciudad
 
     @staticmethod
     def get_all_cities(db: Session):
         return db.query(Ciudad).all()
     
-    @staticmethod
-    def delete_ciudad(self, db: Session, ciudad_id: int):
-        ciudad = db.query(Ciudad).filter(Ciudad.id == ciudad_id).first()
-        if not ciudad:
-            raise HTTPException(status_code=404, detail="Ciudad no encontrada")
-        db.query(ProductoCiudad).filter(ProductoCiudad.ciudad_id == ciudad_id).delete()
-        db.delete(ciudad)
-        db.commit()
-        return {"message": f"Ciudad con ID {ciudad_id} eliminada exitosamente"}
+    

@@ -69,8 +69,6 @@ class OrderService:
             logging.error(f"Error al crear la orden: {e}")
             raise HTTPException(status_code=500, detail="Error al crear el pedido.")
 
-
-   
     @staticmethod
     def get_safe_file_path(directory: str, filename: str = "ordenes_exportadas.xlsx") -> str:
         filename = re.sub(r'[^a-zA-Z0-9_\-\.]', '', filename)
@@ -123,36 +121,62 @@ class OrderService:
             raise HTTPException(status_code=404, detail="Orden no encontrada")
 
     @staticmethod
-    async def export_orders_to_excel(db: Session, file_path: Optional[str]) -> str:
-        if not file_path:
-            temp_dir = tempfile.mkdtemp()
-            file_path = os.path.join(temp_dir, "ordenes_exportadas.xlsx")
-        else:
-            file_path = OrderService.get_safe_file_path(file_path)
+    async def export_orders_to_excel(db: Session, file_path: Optional[str] = None) -> str:
+        """Exporta las órdenes a un archivo Excel con deserialización de productos."""
+        try:
+            if not file_path:
+                temp_dir = tempfile.mkdtemp()
+                file_path = os.path.join(temp_dir, "ordenes_exportadas.xlsx")
 
-        workbook = Workbook()
-        sheet = workbook.active
-        sheet.title = "Órdenes"
-        headers = ["ID", "Teléfono", "Email", "Dirección", "Producto", "Cantidad", "Ad ID", "Nombre", "Apellido"]
-        sheet.append(headers)
-        orders = CRUDOrder().get_all_orders(db)
-        for order in orders:
-            productos = json.dumps(order.producto)
-            sheet.append([
-                order["id"],
-                order["phone"] or "N/A",
-                order["email"] or "N/A",
-                order["address"] or "N/A",
-                productos,
-                order["cantidad_cajas"],
-                order.get("ad_id", "N/A"),
-                order.get("nombre", "N/A"), 
-                order.get("apellido", "N/A")  
-            ])
-        workbook.save(file_path)
-        os.chmod(file_path, 0o600)  
-        
-        return file_path
+            workbook = Workbook()
+            sheet = workbook.active
+            sheet.title = "Órdenes"
+
+            # Encabezados
+            headers = [
+                "Teléfono", "Nombre", "Apellido", "Producto", 
+                "Cantidad", "Precio", "Ciudad", "Dirección", "Ad ID"
+            ]
+            sheet.append(headers)
+
+            # Obtener todas las órdenes
+            orders = CRUDOrder().get_all_orders(db)
+
+            for order in orders:
+                # Deserializar productos si están en formato JSON
+                productos = order["producto"]
+                if isinstance(productos, str):
+                    try:
+                        productos = json.loads(productos)  # Convertir JSON a objetos Python
+                    except json.JSONDecodeError:
+                        logging.error(f"Error al deserializar productos: {productos}")
+                        productos = []
+
+                # Añadir una fila por cada producto en la orden
+                for producto in productos:
+                    row = [
+                        order["phone"], 
+                        order["nombre"], 
+                        order["apellido"],
+                        producto.get("producto", "N/A"),  # Nombre del producto
+                        producto.get("cantidad", 0),     # Cantidad del producto
+                        producto.get("precio", 0.0),     # Precio del producto
+                        order["ciudad"], 
+                        order["address"], 
+                        order["ad_id"]
+                    ]
+                    sheet.append(row)
+
+            # Guardar el archivo
+            workbook.save(file_path)
+            os.chmod(file_path, 0o600)  # Permisos seguros
+            return file_path
+
+        except Exception as e:
+            logging.error(f"Error exportando órdenes a Excel: {e}")
+            raise HTTPException(status_code=500, detail="Error al exportar órdenes.")
+
+
 
 
 @router.post("/orders/", response_model=dict)
@@ -161,7 +185,10 @@ async def create_order(order: schemas.OrderCreate, db: Session = Depends(get_db)
 
 @router.get("/orders/{order_id}", response_model=schemas.OrderResponse)
 async def get_order_by_id(order_id: int, db: Session = Depends(get_db)):
-    return await OrderService.get_order_by_id(order_id, db)
+    """Obtiene una orden específica por ID."""
+    crud_order = CRUDOrder()
+    order_data = crud_order.get_order_by_id(db, order_id)
+    return schemas.OrderResponse(**order_data)
 
 @router.get("/", response_model=List[schemas.Order])
 async def get_orders(skip: int = 0, limit: int = 10, db: Session = Depends(get_db)):
@@ -187,25 +214,21 @@ async def create_order_from_chat(order_data: schemas.OrderCreate, db: Session = 
 
 @router.get("/orders/all/", response_model=List[schemas.OrderResponse])
 async def get_all_orders(skip: int = 0, limit: int = 1000, db: Session = Depends(get_db)):
-    orders = CRUDOrder().get_all_orders(db=db, skip=skip, limit=limit)
-    return [
-        {
-            "id": order["id"],  
-            "phone": order["phone"] or "N/A",
-            "email": order["email"] or "N/A",
-            "address": order["address"] or "N/A",
-            "ciudad": order["ciudad"] or "N/A",
-            "producto": json.loads(order["producto"]) if order["producto"] else [], 
-            "cantidad_cajas": order["cantidad_cajas"] or 1,
-            "nombre": order["nombre"] or "N/A",
-            "apellido": order["apellido"] or "N/A",
-            "ad_id": order["ad_id"] or "N/A",
-        }
-        for order in orders
-    ]
-
+    """Obtiene todas las órdenes."""
+    crud_order = CRUDOrder()
+    orders = crud_order.get_all_orders(db, skip=skip, limit=limit)
+    return [schemas.OrderResponse(**order) for order in orders]
 
 @router.get("/orders/export_excel/")
 async def export_orders_to_excel_endpoint(db: Session = Depends(get_db), file_path: Optional[str] = None):
     file_path = await OrderService.export_orders_to_excel(db, file_path)
     return FileResponse(file_path, filename=os.path.basename(file_path))
+
+@router.delete("/orders/delete_all")
+async def delete_all_orders(db: Session = Depends(get_db)):
+    try:
+        CRUDOrder().delete_all_orders(db)
+        return {"message": "Todas las órdenes han sido eliminadas correctamente."}
+    except Exception as e:
+        logging.error(f"Error al eliminar todas las órdenes: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error al eliminar todas las órdenes.")

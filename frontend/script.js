@@ -1,4 +1,4 @@
-const backendUrl = "https://kokomibot.up.railway.app/";
+const backendUrl = "https://kokomibot.up.railway.app/"
 
 async function loadSection(section) {
     let content = document.getElementById("content");
@@ -242,12 +242,13 @@ async function deleteCiudad(ciudadId) {
 }
 
 async function fetchProductos() {
-    const cuentaId = document.getElementById("cuentaId").value;
-
-    if (!cuentaId) {
+    const cuentaIdInput = document.getElementById("cuentaId");
+    if (!cuentaIdInput || !cuentaIdInput.value.trim()) {
         alert("Por favor, ingresa el ID de la cuenta.");
         return;
     }
+
+    const cuentaId = cuentaIdInput.value.trim();
 
     try {
         const response = await fetch(`${backendUrl}accounts/${cuentaId}/products`);
@@ -262,17 +263,17 @@ async function fetchProductos() {
             return;
         }
 
-        // Renderizar productos
+        // Renderiza los productos con la estructura correcta
         document.getElementById("productos-list").innerHTML = productos
             .map(producto => {
-                if (!producto.id) {
-                    console.error("Producto sin ID encontrado:", producto);
-                    return `<p>Error: Producto sin ID no se puede eliminar.</p>`;
-                }
+                const nombreProducto = producto.producto || "Producto desconocido";
+                const precio = producto.precio || "Sin precio";
+
                 return `
-                    <p>${producto.producto} - Precio: ${producto.precio}
-                        <button onclick="deleteProducto(${cuentaId}, ${producto.id})">Eliminar</button>
-                    </p>`;
+                    <p>Cuenta ID: ${cuentaId} - Producto: ${nombreProducto} - Precio: ${precio}
+                        <button onclick="deleteProducto(${producto.id})">Eliminar</button>
+                    </p>
+                `;
             })
             .join("");
     } catch (error) {
@@ -280,6 +281,8 @@ async function fetchProductos() {
         document.getElementById("productos-list").innerHTML = "<p>Error al cargar productos. Revisa la consola para más detalles.</p>";
     }
 }
+
+
 
 
 
@@ -303,9 +306,19 @@ async function createProductos(event) {
 }
 
 async function deleteProducto(productoId) {
+    // Obtén el valor del ID de la cuenta correctamente
+    const cuentaIdInput = document.getElementById("cuentaId");
+    if (!cuentaIdInput || !cuentaIdInput.value.trim()) {
+        alert("Por favor, ingresa el ID de la cuenta.");
+        return;
+    }
+
+    const cuentaId = cuentaIdInput.value.trim();
+
     try {
+        // Realiza la solicitud DELETE al backend
         const response = await fetch(`${backendUrl}accounts/${cuentaId}/products/${productoId}`, {
-            method: 'DELETE'
+            method: 'DELETE',
         });
 
         if (response.ok) {
@@ -313,13 +326,14 @@ async function deleteProducto(productoId) {
             fetchProductos(); // Refresca la lista de productos
         } else {
             const errorData = await response.json();
-            throw new Error(`Error al eliminar producto: ${errorData.detail || response.status}`);
+            throw new Error(`Error al eliminar producto: ${errorData.detail || response.statusText}`);
         }
     } catch (error) {
         console.error("Error al eliminar producto:", error);
         alert("No se pudo eliminar el producto. Verifica la consola para más detalles.");
     }
 }
+
 
 
 
@@ -382,31 +396,32 @@ async function fetchOrders() {
         if (!response.ok) throw new Error(`Error: ${response.status} ${response.statusText}`);
         const orders = await response.json();
 
+        // Renderizar las órdenes
         document.getElementById("orders-list").innerHTML = orders.map(order => {
-            let productos = Array.isArray(order.producto) ? order.producto : [];
-            const productosString = productos.map(p => `${p.cantidad} de ${p.producto}`).join("<br>");
+            let productos = Array.isArray(order.producto) ? order.producto : JSON.parse(order.producto || "[]");
 
-            return `
+            return productos.map(p => `
                 <div>
-                    <p><strong>Orden ID:</strong> ${order.id}</p>
-                    <p><strong>Productos:</strong><br>${productosString || "Sin productos"}</p>
-                    <p><strong>Cantidad Total:</strong> ${order.cantidad_cajas || "N/A"}</p>
                     <p><strong>Teléfono:</strong> ${order.phone || "N/A"}</p>
-                    <p><strong>Email:</strong> ${order.email || "N/A"}</p>
-                    <p><strong>Dirección:</strong> ${order.address || "N/A"}</p>
                     <p><strong>Nombre:</strong> ${order.nombre || "N/A"}</p>
                     <p><strong>Apellido:</strong> ${order.apellido || "N/A"}</p>
+                    <p><strong>Producto:</strong> ${p.producto}</p>
+                    <p><strong>Cantidad:</strong> ${p.cantidad}</p>
+                    <p><strong>Precio:</strong> ${p.precio}</p>
+                    <p><strong>Ciudad:</strong> ${order.ciudad || "N/A"}</p>
+                    <p><strong>Dirección:</strong> ${order.address || "N/A"}</p>
                     <p><strong>Ad ID:</strong> ${order.ad_id || "N/A"}</p>
                     <button onclick="deleteOrder(${order.id})">Eliminar</button>
                 </div>
                 <hr>
-            `;
+            `).join("");
         }).join("");
     } catch (error) {
         console.error("Error al cargar órdenes:", error);
         document.getElementById("orders-list").innerHTML = "<p>Error al cargar órdenes.</p>";
     }
 }
+
 
 async function fetchOrderById() {
     const orderId = document.getElementById("orderId").value;
@@ -423,28 +438,26 @@ async function fetchOrderById() {
         }
 
         const order = await response.json();
-        let productos = Array.isArray(order.producto) ? order.producto : [];
-        const productosString = productos.map(p => `<li>${p.cantidad} de ${p.producto}</li>`).join("");
+        let productos = Array.isArray(order.producto) ? order.producto : JSON.parse(order.producto || "[]");
 
-        document.getElementById("single-order").innerHTML = `
+        document.getElementById("single-order").innerHTML = productos.map(p => `
             <h3>Detalles de la Orden ID: ${order.id}</h3>
-            <p><strong>Productos:</strong></p>
-            <ul>${productosString || "<li>Sin productos</li>"}</ul>
-            <p><strong>Cantidad Total:</strong> ${order.cantidad_cajas}</p>
             <p><strong>Teléfono:</strong> ${order.phone || "N/A"}</p>
-            <p><strong>Email:</strong> ${order.email || "N/A"}</p>
-            <p><strong>Dirección:</strong> ${order.address || "N/A"}</p>
             <p><strong>Nombre:</strong> ${order.nombre || "N/A"}</p>
             <p><strong>Apellido:</strong> ${order.apellido || "N/A"}</p>
+            <p><strong>Producto:</strong> ${p.producto}</p>
+            <p><strong>Cantidad:</strong> ${p.cantidad}</p>
+            <p><strong>Precio:</strong> ${p.precio}</p>
+            <p><strong>Ciudad:</strong> ${order.ciudad || "N/A"}</p>
+            <p><strong>Dirección:</strong> ${order.address || "N/A"}</p>
             <p><strong>Ad ID:</strong> ${order.ad_id || "N/A"}</p>
             <button onclick="deleteOrder(${order.id})">Eliminar esta Orden</button>
-        `;
+        `).join("");
     } catch (error) {
         console.error("Error al cargar la orden:", error);
         document.getElementById("single-order").innerHTML = "<p>Error al cargar la orden.</p>";
     }
 }
-
 
 async function deleteOrder(orderId) {
     await fetch(`${backendUrl}orders/${orderId}`, { method: 'DELETE' });
@@ -457,26 +470,44 @@ async function exportOrdersToExcel(event) {
     const filePath = document.getElementById("excelPath").value;
 
     try {
-        const response = await fetch(`${backendUrl}orders/export_excel/?file_path=${encodeURIComponent(filePath)}`, {
-            method: 'GET',
-            headers: { 'Content-Type': 'application/json' }
-        });
+        const response = await fetch(`${backendUrl}orders/export_excel/`);
+        if (!response.ok) throw new Error(`Error al exportar órdenes a Excel: ${response.statusText}`);
 
         const blob = await response.blob();
         const downloadUrl = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = downloadUrl;
-        link.download = filePath.split('/').pop();
-        link.innerText = "Descargar Archivo Excel";
-        document.getElementById("excel-download-link").innerHTML = "";
-        document.getElementById("excel-download-link").appendChild(link);
+        link.download = "ordenes_exportadas.xlsx"; // Nombre fijo para simplificar
+        link.click();
 
-        alert("Archivo exportado y listo para descargar.");
+        alert("Archivo exportado con éxito. Revisa tus descargas.");
     } catch (error) {
         console.error("Error al exportar órdenes a Excel:", error);
-        document.getElementById("excel-download-link").innerHTML = "<p>Error al exportar el archivo.</p>";
+        alert("Error al exportar órdenes a Excel.");
     }
 }
+
+
+async function deleteAllOrders() {
+    try {
+        const confirmation = confirm("¿Estás seguro de que deseas eliminar todas las órdenes?");
+        if (!confirmation) return;
+
+        const response = await fetch(`${backendUrl}orders/delete_all`, { method: 'DELETE' });
+        if (response.ok) {
+            alert("Todas las órdenes han sido eliminadas con éxito.");
+            fetchOrders(); // Actualiza la lista de órdenes después de eliminar todas.
+        } else {
+            const errorData = await response.json();
+            throw new Error(`Error al eliminar todas las órdenes: ${errorData.detail || response.status}`);
+        }
+    } catch (error) {
+        console.error("Error al eliminar todas las órdenes:", error);
+        alert("No se pudieron eliminar todas las órdenes. Verifica la consola para más detalles.");
+    }
+}
+
+
 
 
 async function askChatbot(event) {
