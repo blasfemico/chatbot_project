@@ -992,7 +992,7 @@ class FacebookService:
                     logging.info(f"Actualizado {key}: {value}")
             ChatbotService.user_contexts[cuenta_id][sender_id] = context
             print(f"Contexto actualizado después de extraer datos: {context}")
-            await asyncio.sleep(60)
+            await asyncio.sleep(100)
 
             if ciudad == "No vendemos en esta ciudad. Tu pedido ha sido cancelado.":
                         print("Ciudad no válida detectada")
@@ -1003,7 +1003,7 @@ class FacebookService:
                         FacebookService.reset_context(context, cuenta_id, sender_id)
                         return
 
-            await asyncio.sleep(60)  
+            await asyncio.sleep(20)  
 
             datos_faltantes = []
             if not context.get("telefono"):
@@ -1107,7 +1107,7 @@ class FacebookService:
                                     logging.error(f"Error al crear la orden: espere porfavor")
                                     print(f"Error al crear la orden: {str(e)}")
 
-            await asyncio.sleep(30)
+            await asyncio.sleep(120)
 
             if not context.get("telefono") and context["orden_flujo_aislado"]:
                 print("Falta número de teléfono, cancelando orden")
