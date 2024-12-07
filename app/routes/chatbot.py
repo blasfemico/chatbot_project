@@ -805,7 +805,7 @@ class FacebookService:
             if nombre_producto in productos_nombres:
                 producto["precio"] = productos_nombres[nombre_producto] * producto["cantidad"]
             else:
-                producto["precio"] = 0  # Producto no encontrado en la base de datos
+                producto["precio"] = 0 
 
         return productos_detectados
 
@@ -915,7 +915,6 @@ class FacebookService:
                     return
             if productos_validos:
                 context["productos"] = productos_validos
-                context["orden_flujo_aislado"] = True
 
         if any(phrase in message_text for phrase in order_intent_phrases):
             context["orden_flujo_aislado"] = True
