@@ -405,7 +405,7 @@ class ChatbotService:
         input_text = unidecode(input_text.lower().strip())
         logging.debug(f"Texto de entrada normalizado: {input_text}")
         ciudades = {unidecode(ciudad.nombre.lower().strip()) for ciudad in CRUDCiudad.get_all_cities(db)}
-        logging.debug(f"Ciudades disponibles en la base de datos (normalizadas): {ciudades}")
+        print(f"Ciudades disponibles en la base de datos (normalizadas): {ciudades}")
         for ciudad in ciudades:
             if ciudad in input_text:
                 logging.info(f"Ciudad encontrada directamente en el texto: {ciudad}")
@@ -435,7 +435,7 @@ class ChatbotService:
                 return ciudad_detectada.title()
             else:
                 logging.warning(f"Ciudad detectada no válida: {ciudad_detectada}")
-                return None
+                return "No vendemos en esta ciudad. Tu pedido ha sido cancelado."
         except Exception as e:
             logging.error(f"Error al utilizar ChatGPT para detectar ciudad: {e}")
         logging.warning("No se pudo detectar una ciudad válida")
@@ -796,14 +796,10 @@ class FacebookService:
         Procesa el mensaje para extraer productos y cantidades, compararlos con la base de datos,
         y asignar el precio correspondiente a cada producto detectado.
         """
-        # Obtiene los productos disponibles y sus precios para la cuenta
         productos_disponibles = crud_producto.get_productos_by_cuenta(db, cuenta_id)
         productos_nombres = {p["producto"].lower(): p["precio"] for p in productos_disponibles}
 
-        # Extrae productos y cantidades del mensaje
         productos_detectados = ChatbotService.extract_product_and_quantity(message_text, db)
-
-        # Asigna precios a los productos detectados
         for producto in productos_detectados:
             nombre_producto = producto["producto"].lower()
             if nombre_producto in productos_nombres:
@@ -904,20 +900,22 @@ class FacebookService:
             FacebookService.handle_context_logic(context, sender_id, cuenta_id, api_key, db, message_text)
             
 
-        productos_detectados = ChatbotService.extract_product_and_quantity(message_text, db)
+        productos_detectados = ChatbotService.process_product_and_assign_price(message_text, db, cuenta_id)
         if productos_detectados:
+            productos_validos = []
             for producto in productos_detectados:
-                producto_nombre = producto["producto"]
-                producto_en_inventario = crud_producto.get_producto_por_nombre(db, cuenta_id, producto_nombre)
-                if not producto_en_inventario:
+                if producto["precio"] > 0: 
+                    productos_validos.append(producto)
+                else: 
                     await FacebookService.send_text_message(
                         sender_id,
-                        f"Lo siento, no tenemos '{producto_nombre}' en el inventario.",
+                        f"Lo siento, no tenemos '{producto['producto']}' en el inventario.",
                         api_key
                     )
                     return
-            context["productos"] = productos_detectados
-            context["orden_flujo_aislado"] = True
+            if productos_validos:
+                context["productos"] = productos_validos
+                context["orden_flujo_aislado"] = True
 
         if any(phrase in message_text for phrase in order_intent_phrases):
             context["orden_flujo_aislado"] = True
@@ -992,7 +990,7 @@ class FacebookService:
                     logging.info(f"Actualizado {key}: {value}")
             ChatbotService.user_contexts[cuenta_id][sender_id] = context
             print(f"Contexto actualizado después de extraer datos: {context}")
-            await asyncio.sleep(100)
+            await asyncio.sleep(120)
 
             if ciudad == "No vendemos en esta ciudad. Tu pedido ha sido cancelado.":
                         print("Ciudad no válida detectada")
