@@ -77,3 +77,4 @@ async def delete_account(account_id: int, db: Session = Depends(get_db)):
     db.delete(cuenta)
     db.commit()
     return {"message": "Cuenta eliminada con éxito."}
+
