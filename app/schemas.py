@@ -1,5 +1,6 @@
 from pydantic import BaseModel, validator
 from typing import Optional, List, Union
+from datetime import date
 
 
 # Modelos para FAQ
@@ -68,6 +69,7 @@ class OrderCreate(BaseModel):
     nombre: Optional[str] = None
     apellido: Optional[str] = None
     ad_id: Optional[str] = None
+    delivery_date: Optional[date] = None
 
     @validator("cantidad_cajas", pre=True, always=True)
     def convert_cantidad_cajas(cls, v):
@@ -85,6 +87,7 @@ class OrderResponse(BaseModel):
     nombre: Optional[str]
     apellido: Optional[str]
     ad_id: Optional[str]
+    delivery_date: Optional[date]
 
     class Config:
         from_attributes = True

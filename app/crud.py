@@ -232,6 +232,7 @@ class CRUDOrder:
                 nombre=nombre,
                 apellido=apellido,
                 ad_id=order.ad_id or "N/A",
+                delivery_date=order.delivery_date,
             )
             db.add(new_order)
             db.commit()

@@ -33,6 +33,7 @@ from stanza import DownloadMethod
 from typing import Optional
 from collections import defaultdict
 from unidecode import unidecode
+from datetime import timedelta
 
 
 
@@ -207,6 +208,8 @@ class ChatbotService:
         chat_history: str = "", 
     ) -> str:
         logging.info(f"Recibido db_response en generate_humanlike_response: {db_response}")
+        print(f'"productos_por_ciudad en generate_humanlike_response: {productos_por_ciudad}')
+        print(f'"ciudades_disponibles en generate_humanlike_response: {ciudades_disponibles}')
 
         if not ciudades_disponibles or not isinstance(ciudades_disponibles, list):
             raise ValueError("El parámetro 'ciudades_disponibles' debe ser una lista no vacía.")
@@ -272,7 +275,7 @@ class ChatbotService:
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=400,
+            max_tokens=300,
         )
 
         raw_response = response.choices[0].message.content.strip()
@@ -678,7 +681,7 @@ class ChatbotService:
         embeddings = ChatbotService.model.encode(faq_questions)
 
         similarities = util.cos_sim(question_embedding, embeddings)[0]
-        threshold = 0.80
+        threshold = 0.90
 
         max_similarity_index = similarities.argmax().item()
         max_similarity_value = similarities[max_similarity_index]
@@ -784,7 +787,11 @@ class FAQService:
         return {"message": "Todas las FAQs han sido eliminadas correctamente."}
 
 
+
+
 class FacebookService:
+    API_KEYS_FILE = "api_keys.json"
+
     @staticmethod
     async def connect_facebook(account: CuentaSchema, db: Session) -> dict:
         url = f"{settings.FACEBOOK_GRAPH_API_URL}/me/subscribed_apps"
@@ -800,8 +807,8 @@ class FacebookService:
                 status_code=response.status_code, detail=response.json()
             )
 
-class FacebookService:
-    API_KEYS_FILE = "api_keys.json"
+    
+
     @staticmethod
     def get_api_key_by_page_id(page_id: str) -> str:
         """
@@ -817,25 +824,65 @@ class FacebookService:
         return api_key
     
     @staticmethod
+    def calculate_delivery_date(message_text: str) -> date:
+        today = datetime.today()
+        weekdays = {
+            "lunes": 0, "martes": 1, "miércoles": 2, "jueves": 3,
+            "viernes": 4, "sábado": 5, "domingo": 6
+        }
+
+        if "hoy" in message_text.lower():
+            return today.date()
+        elif "mañana" in message_text.lower():
+            return (today + timedelta(days=1)).date()
+        else:
+            for day_name, weekday in weekdays.items():
+                if day_name in message_text.lower():
+                    days_ahead = (weekday - today.weekday() + 7) % 7
+                    return (today + timedelta(days=days_ahead)).date()
+        return (today + timedelta(days=1)).date()
+
+
+    @staticmethod
     def process_product_and_assign_price(message_text: str, db: Session, cuenta_id: int):
         """
         Procesa el mensaje para extraer productos y cantidades, compararlos con la base de datos,
-        y asignar el precio correspondiente a cada producto detectado.
+        reorganiza el texto del mensaje y asigna el precio correspondiente a cada producto detectado.
         """
         productos_disponibles = crud_producto.get_productos_by_cuenta(db, cuenta_id)
         productos_nombres = {p["producto"].lower(): p["precio"] for p in productos_disponibles}
+        def reorganizar_texto(texto):
+            match = re.match(r"(\d+)\s*cajas?\s*de\s*(.+)", texto.lower())
+            if match:
+                cantidad = match.group(1)
+                producto = match.group(2)
+                return f"{producto} {cantidad} cajas".strip()
+            return texto.lower()
 
-        productos_detectados = ChatbotService.extract_product_and_quantity(message_text, db)
-        for producto in productos_detectados:
-            nombre_producto = producto["producto"].lower()
-            if nombre_producto in productos_nombres:
-                producto["precio"] = productos_nombres[nombre_producto] * producto["cantidad"]
-            else:
-                producto["precio"] = 0  
+        message_text_normalized = reorganizar_texto(message_text)
+        productos_detectados = []
+
+        for nombre_producto, precio in productos_nombres.items():
+            if nombre_producto in message_text_normalized:
+                cantidad_match = re.search(r"\b(\d+)\b", nombre_producto)
+                cantidad = int(cantidad_match.group(1)) if cantidad_match else 1
+
+                productos_detectados.append({
+                    "producto": nombre_producto,
+                    "cantidad": cantidad,
+                    "precio": precio
+                })
+        if not productos_detectados:
+            productos_genericos = ChatbotService.extract_product_and_quantity(message_text, db)
+            for producto in productos_genericos:
+                nombre_producto = reorganizar_texto(f"{producto['cantidad']} cajas de {producto['producto']}")
+                cantidad = producto.get("cantidad", 1)
+                precio_unitario = productos_nombres.get(nombre_producto, 0)
+                producto["precio"] = precio_unitario * cantidad if precio_unitario else 0
+                producto["producto"] = nombre_producto
+                productos_detectados.append(producto)
 
         return productos_detectados
-
-
 
     @staticmethod
     def reset_context(context: dict, cuenta_id: str, sender_id: str):
@@ -925,11 +972,18 @@ class FacebookService:
         if telefono:
             context["telefono"] = telefono
             context["orden_flujo_aislado"] = True
-            FacebookService.handle_context_logic(context, sender_id, cuenta_id, api_key, db, message_text)
+            await FacebookService.handle_context_logic(context, sender_id, cuenta_id, api_key, db, message_text)
             
 
-        productos_detectados = FacebookService.process_product_and_assign_price(message_text, db, cuenta_id)
+        delivery_date = FacebookService.calculate_delivery_date(message_text)
+        if not delivery_date:
+            delivery_date = (datetime.today() + timedelta(days=1)).date()
 
+        context["delivery_date"] = delivery_date
+        logging.info(f"Fecha de entrega asignada: {delivery_date}")
+
+                
+        productos_detectados = FacebookService.process_product_and_assign_price(message_text, db, cuenta_id)
         if not productos_detectados:
             cantidad_match = re.findall(r"\b(\d+)\b", message_text)
             if cantidad_match:
@@ -952,16 +1006,11 @@ class FacebookService:
             else:
                 logging.info("No se detectaron productos válidos. El contexto de productos no será modificado.")
 
-        if "quiero" or "me interesa"  in message_text.lower() and productos_detectados:
+        if any(phrase in message_text.lower() for phrase in ["quiero", "me interesa"]) and productos_detectados:
             context["orden_flujo_aislado"] = True
-        else:
-            context["orden_flujo_aislado"] = False
 
         if any(phrase in message_text for phrase in order_intent_phrases):
             context["orden_flujo_aislado"] = True
-
-
-        
 
         ChatbotService.user_contexts[cuenta_id][sender_id] = context
         await FacebookService.handle_context_logic(context, sender_id, cuenta_id, api_key, db, message_text)
@@ -1000,8 +1049,6 @@ class FacebookService:
                     logging.error(f"Error al procesar similar_question: {str(e)}")
                     return
 
-
-
                 
             ciudad = ChatbotService.extract_city_from_text(message_text, db)
             if ciudad:
@@ -1009,6 +1056,15 @@ class FacebookService:
             direccion = ChatbotService.extract_address_from_text(message_text, cuenta_id, sender_id, db)
             telefono = ChatbotService.extract_phone_number(message_text)
             productos_detectados = FacebookService.process_product_and_assign_price(message_text, db, cuenta_id)
+
+            delivery_date = FacebookService.calculate_delivery_date(message_text)
+            if not delivery_date:
+                delivery_date = (datetime.today() + timedelta(days=1)).date()
+
+            context["delivery_date"] = delivery_date
+            logging.info(f"Fecha de entrega asignada: {delivery_date}")
+
+
 
             print(f"Datos extraídos del mensaje:")
             print(f"Ciudad: {ciudad}")
@@ -1031,29 +1087,33 @@ class FacebookService:
             ChatbotService.user_contexts[cuenta_id][sender_id] = context
             print(f"Contexto actualizado después de extraer datos: {context}")
 
-
-            await asyncio.sleep(120)
+            await asyncio.sleep(360)
 
             if ciudad is not None:
                 ciudades = {ciudad[0].lower() for ciudad in db.query(Ciudad.nombre).all()}
                 if ciudad.lower() not in ciudades:
                     print("Ciudad no válida detectada")
                     cancel_text = (
-                        "Lamentablemente, no vendemos en tu ciudad. Por favor, verifica si tienes otra dirección válida."
+                        "Una disculpa, por el momento no tenemos repartidor en tu ciudad pero podemos mandar tu pedido por paquetería con un costo extra de $120, si estás interesada por favor escríbeme a mi WhatsApp: 479 391 4520"
                     )
                     await FacebookService.send_text_message(sender_id, cancel_text, api_key)
                     FacebookService.reset_context(context, cuenta_id, sender_id)
-                    context["orden_flujo_aislado"] = False
-                    ChatbotService.user_contexts[cuenta_id][sender_id] = context
                     return
+                
                 productos_contexto = context.get("productos", [])
+                if productos_contexto is None:
+                    productos_contexto = [] 
                 crud_ciudad = CRUDCiudad()
                 productos_disponibles = crud_ciudad.get_products_for_city(db, ciudad.lower())
                 productos_disponibles_nombres = {producto["nombre"].lower() for producto in productos_disponibles}
 
+                def extraer_nombre_base(nombre_producto):
+                    match = re.match(r"(.+?)(\s+\d+\s+cajas?)?", nombre_producto.lower())
+                    return match.group(1).strip() if match else nombre_producto.lower()
+
                 productos_no_disponibles = [
                     producto["producto"] for producto in productos_contexto
-                    if producto["producto"].lower() not in productos_disponibles_nombres
+                    if extraer_nombre_base(producto["producto"]) not in productos_disponibles_nombres
                 ]
 
                 if productos_no_disponibles:
@@ -1064,10 +1124,6 @@ class FacebookService:
                     )
                     await FacebookService.send_text_message(sender_id, cancel_text, api_key)
                     FacebookService.reset_context(context, cuenta_id, sender_id)
-                    context["orden_flujo_aislado"] = False
-                    ChatbotService.user_contexts[cuenta_id][sender_id] = context
-                    return
-
 
             await asyncio.sleep(20)  
 
@@ -1129,24 +1185,12 @@ class FacebookService:
                                     print(f"Teléfono: {telefono}")
                                     print(f"Email: {email}")
 
-                                    productos_info = crud_producto.get_productos_by_cuenta(db, cuenta_id)
-
-                                    for producto in productos:
-                                        producto_nombre = f"{producto['producto']} ({producto['cantidad']})".lower()
-                                        producto["precio"] = next(
-                                            (prod['precio'] for prod in productos_info if prod['producto'].lower() == producto_nombre),
-                                            0  
-                                        )
-                                        print(f"Precio asignado para {producto_nombre}: {producto['precio']}")
-                                       
-
                                     cantidad_cajas = sum([p["cantidad"] for p in productos])
                                     ChatbotService.user_contexts[cuenta_id][sender_id] = context
 
                                     print(f'productos: {productos}')
                                     print(f'cantidad_cajas: {cantidad_cajas}')
-                                    print(f'producto nombre: {producto_nombre}')
-                                    
+          
                                 
                                     order_data = schemas.OrderCreate(
                                         phone=telefono,
@@ -1156,6 +1200,7 @@ class FacebookService:
                                         cantidad_cajas=cantidad_cajas,
                                         ciudad=ciudad,
                                         ad_id=context.get("ad_id", "N/A"),
+                                        delivery_date=context.get("delivery_date") or (datetime.today() + timedelta(days=1)).date()
                                     )
 
                                     crud_order = CRUDOrder()
@@ -1163,15 +1208,15 @@ class FacebookService:
 
                                     respuesta = (
                                         f"✅ Su pedido ya quedó registrado:\n"
-                                        f"📦 Sus productos llegarán pronto!\n"
+                                        f"📦 Sus productos llegarán el {context.get('delivery_date') or (datetime.today() + timedelta(days=1)).date()}.\n"
                                         f"📞 Teléfono: {telefono}\n"
                                         f"📍 Ciudad: {ciudad}\n"
-                                        "El repartidor se comunicará contigo entre 8 AM y 9 PM para confirmar la entrega. ¡Gracias por tu compra! 😊"
+                                        "El repartidor se comunicará contigo entre 8 AM y 9 PM para confirmar la entrega. ¡Gracias por tu compra! 😊\n"
+                                        "Recuerda que si es Sabado tu pedido llegara el lunes."
                                     )
                                     await FacebookService.send_text_message(sender_id, respuesta, api_key)
                                     FacebookService.reset_context(context, cuenta_id, sender_id)
-                                    context["orden_flujo_aislado"] = False
-                                    ChatbotService.user_contexts[cuenta_id][sender_id] = context
+        
                                     print(f'Orden creada exitosamente, contexto actualizado: {context}')
                                     logging.info(f"Orden creada exitosamente: {nueva_orden}")
                                     return
@@ -1205,8 +1250,6 @@ class FacebookService:
                     )
                     await FacebookService.send_text_message(sender_id, cancel_text, api_key)
                     FacebookService.reset_context(context, cuenta_id, sender_id)
-                    context["orden_flujo_aislado"] = False
-                    ChatbotService.user_contexts[cuenta_id][sender_id] = context
                     return
 
 
@@ -1219,8 +1262,6 @@ class FacebookService:
                 await FacebookService.send_text_message(sender_id, cancel_text, api_key)
                 logging.info("Pedido rechazado por falta de número de teléfono.")
                 FacebookService.reset_context(context, cuenta_id, sender_id)
-                context["orden_flujo_aislado"] = False
-                ChatbotService.user_contexts[cuenta_id][sender_id] = context
                 return
 
             elif context.get("telefono")  and context["orden_flujo_aislado"]:
@@ -1266,16 +1307,6 @@ class FacebookService:
                         print(f"Teléfono: {telefono}")
                         print(f"Email: {email}")
 
-                        productos_info = crud_producto.get_productos_by_cuenta(db, cuenta_id)
-
-                        for producto in productos:
-                            producto_nombre = f"{producto['producto']} ({producto['cantidad']})".lower()
-                            producto["precio"] = next(
-                                (prod['precio'] for prod in productos_info if prod['producto'].lower() == producto_nombre),
-                                0  
-                            )
-                            print(f"Precio asignado para {producto_nombre}: {producto['precio']}")
-
                         cantidad_cajas = sum([p["cantidad"] for p in productos])
                         ChatbotService.user_contexts[cuenta_id][sender_id] = context
 
@@ -1290,6 +1321,7 @@ class FacebookService:
                             cantidad_cajas=cantidad_cajas,
                             ciudad=ciudad,
                             ad_id=context.get("ad_id", "N/A"),
+                            delivery_date=context.get("delivery_date") or (datetime.today() + timedelta(days=1)).date()
                         )
 
                         crud_order = CRUDOrder()
@@ -1297,15 +1329,14 @@ class FacebookService:
 
                         respuesta = (
                             f"✅ Su pedido ya quedó registrado:\n"
-                            f"📦 Sus productos llegarán pronto!\n"
+                            f"📦 Sus productos llegarán el {context.get('delivery_date') or (datetime.today() + timedelta(days=1)).date()}.\n"
                             f"📞 Teléfono: {telefono}\n"
                             f"📍 Ciudad: {ciudad}\n"
-                            "El repartidor se comunicará contigo entre 8 AM y 9 PM para confirmar la entrega. ¡Gracias por tu compra! 😊"
+                            "El repartidor se comunicará contigo entre 8 AM y 9 PM para confirmar la entrega. ¡Gracias por tu compra! 😊\n"
+                            "Recuerda que si es Sabado tu pedido llegara el lunes."
                         )
                         await FacebookService.send_text_message(sender_id, respuesta, api_key)
                         FacebookService.reset_context(context, cuenta_id, sender_id)
-                        context["orden_flujo_aislado"] = False
-                        ChatbotService.user_contexts[cuenta_id][sender_id] = context
                         print(f'Orden creada exitosamente, contexto final: {context}')
                         logging.info(f"Orden creada exitosamente: {nueva_orden}")
                         return
@@ -1577,5 +1608,4 @@ async def verify_webhook(request: Request):
         return int(challenge)
     else:
         raise HTTPException(status_code=403, detail="Token de verificación inválido")
-    
     

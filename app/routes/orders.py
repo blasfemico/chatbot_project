@@ -132,44 +132,41 @@ class OrderService:
             sheet = workbook.active
             sheet.title = "Órdenes"
 
-            # Encabezados
+   
             headers = [
                 "Teléfono", "Nombre", "Apellido", "Producto", 
                 "Cantidad", "Precio", "Ciudad", "Dirección", "Ad ID"
             ]
             sheet.append(headers)
 
-            # Obtener todas las órdenes
+        
             orders = CRUDOrder().get_all_orders(db)
 
             for order in orders:
-                # Deserializar productos si están en formato JSON
+
                 productos = order["producto"]
                 if isinstance(productos, str):
                     try:
-                        productos = json.loads(productos)  # Convertir JSON a objetos Python
+                        productos = json.loads(productos)
                     except json.JSONDecodeError:
                         logging.error(f"Error al deserializar productos: {productos}")
                         productos = []
-
-                # Añadir una fila por cada producto en la orden
                 for producto in productos:
                     row = [
                         order["phone"], 
                         order["nombre"], 
                         order["apellido"],
-                        producto.get("producto", "N/A"),  # Nombre del producto
-                        producto.get("cantidad", 0),     # Cantidad del producto
-                        producto.get("precio", 0.0),     # Precio del producto
+                        producto.get("producto", "N/A"),
+                        producto.get("cantidad", 0),     
+                        producto.get("precio", 0.0),   
                         order["ciudad"], 
                         order["address"], 
-                        order["ad_id"]
+                        order["ad_id"],
+                        order["delivery_date"]
                     ]
                     sheet.append(row)
-
-            # Guardar el archivo
             workbook.save(file_path)
-            os.chmod(file_path, 0o600)  # Permisos seguros
+            os.chmod(file_path, 0o600) 
             return file_path
 
         except Exception as e:

@@ -1,7 +1,8 @@
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime, JSON
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime, JSON, Date
 from sqlalchemy.orm import relationship
 from app.database import Base
 from datetime import datetime
+from datetime import date
 
 
 class FAQ(Base):
@@ -23,7 +24,8 @@ class Order(Base):
     cantidad_cajas = Column(String, default="1")
     ad_id = Column(String, nullable=True)
     nombre = Column(String, default="N/A")  
-    apellido = Column(String, default="N/A")  
+    apellido = Column(String, default="N/A") 
+    delivery_date = Column(Date, nullable=True) 
 
 class Ciudad(Base):
     __tablename__ = "ciudades"

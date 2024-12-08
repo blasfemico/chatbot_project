@@ -411,6 +411,7 @@ async function fetchOrders() {
                     <p><strong>Ciudad:</strong> ${order.ciudad || "N/A"}</p>
                     <p><strong>Dirección:</strong> ${order.address || "N/A"}</p>
                     <p><strong>Ad ID:</strong> ${order.ad_id || "N/A"}</p>
+                    <p><strong>Fecha de Entrega:</strong> ${order.delivery_date || "No especificada"}</p>
                     <button onclick="deleteOrder(${order.id})">Eliminar</button>
                 </div>
                 <hr>
@@ -451,6 +452,7 @@ async function fetchOrderById() {
             <p><strong>Ciudad:</strong> ${order.ciudad || "N/A"}</p>
             <p><strong>Dirección:</strong> ${order.address || "N/A"}</p>
             <p><strong>Ad ID:</strong> ${order.ad_id || "N/A"}</p>
+            <p><strong>Fecha de Entrega:</strong> ${order.delivery_date || "No especificada"}</p>
             <button onclick="deleteOrder(${order.id})">Eliminar esta Orden</button>
         `).join("");
     } catch (error) {
