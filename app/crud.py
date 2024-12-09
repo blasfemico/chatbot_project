@@ -282,6 +282,7 @@ class CRUDOrder:
                 "nombre": order.nombre or "N/A",
                 "apellido": order.apellido or "N/A",
                 "ad_id": order.ad_id or "N/A",
+                "delivery_date": order.delivery_date or "N/A",
             }
         except Exception as e:
             logging.error(f"Error al obtener la orden con ID {order_id}: {str(e)}")
@@ -309,6 +310,7 @@ class CRUDOrder:
                     "nombre": order.nombre or "N/A",
                     "apellido": order.apellido or "N/A",
                     "ad_id": order.ad_id or "N/A",
+                    "delivery_date": order.delivery_date or "N/A",
                 })
 
             return orders
