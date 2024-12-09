@@ -24,3 +24,4 @@ redis
 unidecode
 Cython
 stanza
+rapidfuzz 
