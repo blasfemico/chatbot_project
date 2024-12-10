@@ -1284,7 +1284,7 @@ class FacebookService:
             ChatbotService.user_contexts[cuenta_id][sender_id] = context
             print(f"Contexto actualizado después de extraer datos: {context}")
 
-            await asyncio.sleep(60)
+            await asyncio.sleep(260)
 
             if ciudad is not None and context["orden_flujo_aislado"]:
                 ciudades = {ciudad[0].lower() for ciudad in db.query(Ciudad.nombre).all()}
@@ -1442,7 +1442,7 @@ class FacebookService:
                     logging.error(f"Error al procesar similar_question: {str(e)}")
                     return
 
-            await asyncio.sleep(60)
+            await asyncio.sleep(150)
 
             if ciudad is not None and context["orden_flujo_aislado"]:
                 ciudades = {ciudad[0].lower() for ciudad in db.query(Ciudad.nombre).all()}
