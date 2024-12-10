@@ -25,3 +25,4 @@ unidecode
 Cython
 stanza
 rapidfuzz 
+fuzzywuzzy
