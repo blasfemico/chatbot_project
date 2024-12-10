@@ -27,6 +27,7 @@ import logging
 from app.schemas import ProductInput
 from typing import List
 logging.basicConfig(level=logging.INFO)
+from fuzzywuzzy import process
 
 
 model = SentenceTransformer("all-MiniLM-L6-v2")
@@ -369,12 +370,24 @@ class CRUDCuenta:
 
 
 class CRUDCiudad:
+    @staticmethod
     def create_ciudad(self, db: Session, ciudad_data: CiudadCreate):
         db_ciudad = Ciudad(nombre=ciudad_data.nombre)
         db.add(db_ciudad)
         db.commit()
         db.refresh(db_ciudad)
         return db_ciudad
+    
+    @staticmethod
+    def get_closest_product_name(input_text, productos_disponibles):
+        """
+        Encuentra el nombre más cercano al texto proporcionado utilizando fuzzy matching.
+        """
+        productos_disponibles_nombres = [producto["nombre"].lower() for producto in productos_disponibles]
+        best_match, score = process.extractOne(input_text.lower(), productos_disponibles_nombres)
+        if score >= 80:  # Umbral de similitud
+            return best_match
+        return None
 
     @staticmethod
     def get_city_by_phone_prefix(db: Session, prefix: str) -> str:
