@@ -676,13 +676,11 @@ class ChatbotService:
         if cantidad_matches:
             for match in cantidad_matches:
                 cantidad = int(match[0])
-                if cantidad > 10:
-                    logging.warning(f"Cantidad {cantidad} excede el máximo permitido de 10 cajas")
-                    continue
                 producto = match[1].strip().lower()
                 producto_detectado = next((p for p in nombres_productos if producto in p), None)
                 if producto_detectado:
                     productos_detectados.append({"producto": producto_detectado, "cantidad": cantidad})
+
         if not productos_detectados:
             text_embedding = ChatbotService.model.encode(text, convert_to_tensor=True)
             productos_embeddings = ChatbotService.model.encode(nombres_productos, convert_to_tensor=True)
@@ -702,9 +700,6 @@ class ChatbotService:
                 producto_detectado = productos_similares[0]["producto"]
                 cantidad_match = re.findall(r"\b(\d+)\b", text)
                 cantidad = int(cantidad_match[0]) if cantidad_match else 1
-                if cantidad > 10:
-                    cantidad = 10
-                    logging.warning("Cantidad ajustada al máximo permitido de 10 cajas")
                 productos_detectados.append({"producto": producto_detectado, "cantidad": cantidad})
 
         if not productos_detectados:
@@ -1152,8 +1147,15 @@ class FacebookService:
         message_text = event.get("message", {}).get("text", "").strip()
         is_audio = "audio" in event.get("message", {}).get("attachments", [{}])[0].get("type", "")
 
+        thumbs_up_emoji = "👍"
+        if thumbs_up_emoji in message_text:
+            await FacebookService.send_text_message(
+                sender_id,
+                "¡Muchas gracias por comunicarse con nosotros!",
+                api_key
+            )
+            return
         
-
         if is_audio:
             await FacebookService.send_text_message(
                 sender_id,
@@ -1162,7 +1164,6 @@ class FacebookService:
             )
             return
 
-            
         if sender_id not in ChatbotService.initial_message_sent:
             ChatbotService.initial_message_sent[sender_id] = False
 
@@ -1184,13 +1185,13 @@ class FacebookService:
 
         user_context = ChatbotService.user_contexts[cuenta_id].get(sender_id, {})
         if not user_context:
-            user_profile = FacebookService.get_user_profile(sender_id, api_key)
+            user_data = FacebookService.extract_user_data_from_payload(event)
             ChatbotService.user_contexts[cuenta_id][sender_id] = {
-                "nombre": user_profile.get("first_name", "Cliente"),
-                "apellido": user_profile.get("last_name", "Apellido"),
+                "nombre": user_data.get("first_name", "Cliente"),
+                "apellido": user_data.get("last_name", "Apellido"),
+                "ad_id": user_data.get("ad_id"),
                 "productos": [],
                 "telefono": None,
-                "ad_id": None,
                 "intencion_detectada": None,
                 "ciudad": None,
                 "direccion": None,
@@ -1215,7 +1216,6 @@ class FacebookService:
             context["telefono"] = telefono
             context["orden_flujo_aislado"] = True
             await FacebookService.handle_context_logic(context, sender_id, cuenta_id, api_key, db, message_text)
-            
 
         delivery_date = context.get("delivery_date")
         if not delivery_date:
@@ -1230,8 +1230,6 @@ class FacebookService:
                 context["mensaje_lunes_enviado"] = True
             logging.info(f"Fecha de entrega asignada: {delivery_date}")
 
-
-                
         productos_detectados = FacebookService.process_product_and_assign_price(message_text, db, cuenta_id)
         if not productos_detectados:
             cantidad_match = re.findall(r"\b(\d+)\b", message_text)
@@ -1260,12 +1258,12 @@ class FacebookService:
 
         if any(phrase in message_text for phrase in order_intent_phrases):
             context["orden_flujo_aislado"] = True
-        
+
         if "ultima_orden" in context and context["ultima_orden"] and context["orden_flujo_aislado"]:
             tiempo_actual = datetime.now()
             diferencia = (tiempo_actual - context["ultima_orden"]).total_seconds()
             print(f'Contexto en ultima orden: {context}')
-            
+
             if diferencia < 1800:  # 30 minutos
                 tiempo_restante = int((1800 - diferencia) / 60)
                 await FacebookService.send_text_message(
@@ -1276,7 +1274,6 @@ class FacebookService:
                 context["orden_flujo_aislado"] = False
                 ChatbotService.user_contexts[cuenta_id][sender_id] = context
             else:
-     
                 context["ultima_orden"] = None
                 ChatbotService.user_contexts[cuenta_id][sender_id] = context
 
@@ -1719,40 +1716,31 @@ class FacebookService:
 
 
     @staticmethod
-    def get_user_profile(user_id: str, api_key: str):
+    def extract_user_data_from_payload(payload: dict) -> dict:
         """
-        Obtains the Facebook user profile based on advertising campaigns.
-        Includes `first_name`, `last_name`, and the `ad_id`.
+        Extrae el nombre, apellido y ad_id del payload proporcionado.
+        Devuelve un diccionario con los datos extraídos.
         """
-        api_version = 'v21.0'
-        profile_url = f"https://graph.facebook.com/{api_version}/{user_id}?fields=first_name,last_name&access_token={api_key}"
-        ad_accounts_url = f"https://graph.facebook.com/{api_version}/{user_id}/adaccounts?access_token={api_key}"
-
-        user_profile = {"first_name": "Cliente", "last_name": "Apellido", "ad_id": None}
+        user_data = {
+            "first_name": "Cliente",
+            "last_name": "Apellido",
+            "ad_id": None
+        }
 
         try:
-            profile_response = requests.get(profile_url, timeout=10)
-            profile_response.raise_for_status()
-            profile_data = profile_response.json()
+            # Extraer información del remitente
+            sender_data = payload.get("entry", [])[0].get("messaging", [])[0].get("sender", {})
+            user_data["first_name"] = sender_data.get("first_name", "Cliente")
+            user_data["last_name"] = sender_data.get("last_name", "Apellido")
 
-            user_profile["first_name"] = profile_data.get("first_name", "Cliente")
-            user_profile["last_name"] = profile_data.get("last_name", "Apellido")
+            # Extraer información del referral para el ad_id
+            referral_data = payload.get("entry", [])[0].get("messaging", [])[0].get("referral", {})
+            user_data["ad_id"] = referral_data.get("ad_id", None)
 
-            ad_response = requests.get(ad_accounts_url, timeout=10)
-            ad_response.raise_for_status()
-            ad_data = ad_response.json()
+        except (IndexError, KeyError) as e:
+            logging.error(f"Error extrayendo datos del payload: {e}")
 
-            if "data" in ad_data and ad_data["data"]:
-                user_profile["ad_id"] = ad_data["data"][0].get("id", None)
-
-        except requests.exceptions.RequestException as e:
-            logging.error(f"Connection error while obtaining user profile or ad accounts: {e}")
-        except ValueError as e:
-            logging.error(f"Error processing JSON response: {e}")
-        except Exception as e:
-            logging.error(f"Unexpected error while obtaining user profile: {e}")
-
-        return user_profile
+        return user_data
 
     @staticmethod
     async def send_image_message(recipient_id: str, image_url: str):
