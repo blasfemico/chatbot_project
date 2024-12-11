@@ -746,7 +746,7 @@ class ChatbotService:
         embeddings = ChatbotService.model.encode(faq_questions)
 
         similarities = util.cos_sim(question_embedding, embeddings)[0]
-        threshold = 0.70
+        threshold = 0.78
 
         max_similarity_index = similarities.argmax().item()
         max_similarity_value = similarities[max_similarity_index]
