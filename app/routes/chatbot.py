@@ -276,6 +276,7 @@ class ChatbotService:
       {productos_por_ciudad_str}
 
     Instrucciones para responder:
+    - Acuerdate, vendemos en todos los lugares de una ciudad, osea, todas las zonas de las ciudades en {ciudades_str}
     - Evita decir segun nuestra informacion de base de datos o que sacas la informacion de la base de datos, directamente di la respuesta, en NINGUNA RESPUESTA, incluyas que sacas la informacion de la base de datos
     - Si la respuesta contiene "(revisar base de datos)", reemplaza esa frase con la información adecuada de la base de datos proporcionada.
     - Si responde con referencias o testimonios, mandar la {db_response} sobre los testimonios y referencias, no modifiques ninguan respuesta que provenga de la {db_response}
@@ -745,7 +746,7 @@ class ChatbotService:
         embeddings = ChatbotService.model.encode(faq_questions)
 
         similarities = util.cos_sim(question_embedding, embeddings)[0]
-        threshold = 0.90
+        threshold = 0.70
 
         max_similarity_index = similarities.argmax().item()
         max_similarity_value = similarities[max_similarity_index]
@@ -1368,7 +1369,7 @@ class FacebookService:
             ChatbotService.user_contexts[cuenta_id][sender_id] = context
             print(f"Contexto actualizado después de extraer datos: {context}")
 
-            await asyncio.sleep(60)
+            await asyncio.sleep(300)
 
             if ciudad is not None and context["orden_flujo_aislado"]:
                 ciudades = {ciudad[0].lower() for ciudad in db.query(Ciudad.nombre).all()}
@@ -1523,7 +1524,7 @@ class FacebookService:
                     logging.error(f"Error al procesar similar_question: {str(e)}")
                     return
 
-            await asyncio.sleep(60)
+            await asyncio.sleep(150)
 
             if ciudad is not None and context["orden_flujo_aislado"]:
                 ciudades = {ciudad[0].lower() for ciudad in db.query(Ciudad.nombre).all()}
