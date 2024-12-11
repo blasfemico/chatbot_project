@@ -1421,8 +1421,8 @@ class FacebookService:
             if datos_faltantes and not context.get("mensaje_faltante_enviado") and context["orden_flujo_aislado"]:
                 primer_producto = ChatbotService.extract_product_from_initial_message(message_text)
                 reminder_text = (
-                    f"Solo nos falta estos datos para hacer tu pedido: {', '.join(datos_faltantes)}. "
-                    f"Recuerde, si no especifico el producto, se asignará {primer_producto} por defecto."
+                    f"Solo nos falta estos datos para hacer tu pedido: {', '.join(datos_faltantes)}.\n"
+                    f"Recuerde, Colocar bien los nombres de los productos y ciudades para hacer bien su pedido"
                 )
                 await FacebookService.send_text_message(sender_id, reminder_text, api_key)
                 context["mensaje_faltante_enviado"] = True
@@ -1528,7 +1528,7 @@ class FacebookService:
                 if ciudad.lower() not in ciudades:
                     print("Ciudad no válida detectada")
                     cancel_text = (
-                        "Lamentablemente, no vendemos en tu ciudad. Por favor, verifica si tienes otra dirección válida."
+                        "Lamentablemente, no vendemos en tu ciudad.\n"
                         "Tambien podemos mandar tu pedido por paquetería con un costo extra de $120, si estás interesada por favor escríbeme a mi WhatsApp: 479 391 4520"
                     )
                     await FacebookService.send_text_message(sender_id, cancel_text, api_key)
@@ -1539,9 +1539,8 @@ class FacebookService:
                 ciudad_deducida = FacebookService.extract_city_from_phone_number(context["telefono"], db) if context.get("telefono") else None
                 if not ciudad_deducida:
                     cancel_text = (
-                        "Lo sentimos, no vendemos en la ciudad asociada con su número de teléfono. \n"
-                        "Por favor, proporcione un número de teléfono válido o intente con otra dirección\n"
-                        "Tambien podemos mandar tu pedido por paquetería con un costo extra de $120, si estás interesada por favor escríbeme a mi WhatsApp: 479 391 4520"
+                       "Una disculpa, no tengo entregas en tu ciudad,\n"
+                       "Podemos mandar tu pedido por paquetería con un costo extra de $120, si estás interesada por favor escríbeme a mi WhatsApp: 479 391 4520"
                     )
                     await FacebookService.send_text_message(sender_id, cancel_text, api_key)
                     FacebookService.reset_context(context, cuenta_id, sender_id)
