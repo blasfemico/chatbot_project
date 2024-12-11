@@ -1014,42 +1014,45 @@ class FacebookService:
         if not message_text:
             print("No se especificó fecha, asignando para mañana")
             delivery_date = (today + timedelta(days=1)).date()
+            if delivery_date.weekday() == 6:  # Si es domingo, mover al lunes
+                delivery_date += timedelta(days=1)
             return datetime.strptime(delivery_date.strftime("%d-%m-%Y"), "%d-%m-%Y").date()
 
         message_text = message_text.lower().strip()
 
         if "hoy" in message_text:
             print("Se detectó 'hoy' en el mensaje, entrega para hoy")
-            return datetime.strptime(today.date().strftime("%d-%m-%Y"), "%d-%m-%Y").date()
+            delivery_date = today.date()
         elif "mañana" in message_text:
             print("Se detectó 'mañana' en el mensaje, entrega para mañana")
-            tomorrow = (today + timedelta(days=1)).date()
-            return datetime.strptime(tomorrow.strftime("%d-%m-%Y"), "%d-%m-%Y").date()
+            delivery_date = (today + timedelta(days=1)).date()
+        else:
+            match = process.extractOne(message_text, weekdays.keys())
+            print(f"Coincidencia encontrada: {match}")
 
-        match = process.extractOne(message_text, weekdays.keys())
-        print(f"Coincidencia encontrada: {match}")
+            if match and match[1] >= 70:
+                dia_solicitado = match[0]
+                dia_actual = today.weekday()
+                dia_destino = weekdays[dia_solicitado]
 
-        if match and match[1] >= 70:
-            dia_solicitado = match[0]
-            dia_actual = today.weekday()
-            dia_destino = weekdays[dia_solicitado]
+                print(f"Día solicitado: {dia_solicitado}, día actual: {dia_actual}, día destino: {dia_destino}")
 
-            print(f"Día solicitado: {dia_solicitado}, día actual: {dia_actual}, día destino: {dia_destino}")
+                if dia_destino <= dia_actual:
+                    dias_faltantes = 7 - (dia_actual - dia_destino)
+                else:
+                    dias_faltantes = dia_destino - dia_actual
 
-            if dia_destino <= dia_actual:
-                dias_faltantes = 7 - (dia_actual - dia_destino)
+                print(f"Días faltantes calculados: {dias_faltantes}")
+                delivery_date = (today + timedelta(days=dias_faltantes)).date()
             else:
-                dias_faltantes = dia_destino - dia_actual
+                print("No se detectó fecha específica, asignando para mañana")
+                delivery_date = (today + timedelta(days=1)).date()
 
-            print(f"Días faltantes calculados: {dias_faltantes}")
-            delivery_date = (today + timedelta(days=dias_faltantes)).date()
-            return datetime.strptime(delivery_date.strftime("%d-%m-%Y"), "%d-%m-%Y").date()
+        if delivery_date.weekday() == 6:
+            print("La fecha calculada es domingo, ajustando para el lunes")
+            delivery_date += timedelta(days=1)
 
-        print("No se detectó fecha específica, asignando para mañana")
-        tomorrow = (today + timedelta(days=1)).date()
-        return datetime.strptime(tomorrow.strftime("%d-%m-%Y"), "%d-%m-%Y").date()
-
-
+        return datetime.strptime(delivery_date.strftime("%d-%m-%Y"), "%d-%m-%Y").date()
 
 
     @staticmethod
@@ -1196,6 +1199,7 @@ class FacebookService:
                 "mensaje_predeterminado_enviado": False,
                 "pregunta": message_text,
                 "orden_creada": False,
+                "mensaje_lunes_enviado": False,
                 "mensaje_faltante_enviado": False,
                 "mensaje_creacion_enviado": False,
                 "mensaje_creacion_enviado2": False,
@@ -1216,6 +1220,13 @@ class FacebookService:
         if not delivery_date:
             delivery_date = FacebookService.calculate_delivery_date(message_text)
             context["delivery_date"] = delivery_date
+            if delivery_date.weekday() == 0 and not context.get("mensaje_lunes_enviado"):  # Si ajusta para lunes
+                await FacebookService.send_text_message(
+                    sender_id,
+                    f"📦 Nota: El pedido fue programado para el lunes {delivery_date.strftime('%d-%m-%Y')} debido a que fue solicitado un domingo.",
+                    api_key
+                )
+                context["mensaje_lunes_enviado"] = True
             logging.info(f"Fecha de entrega asignada: {delivery_date}")
 
 
@@ -1325,8 +1336,15 @@ class FacebookService:
             delivery_date = context.get("delivery_date")
             if not delivery_date:
                 delivery_date = FacebookService.calculate_delivery_date(message_text)
-                context["delivery_date"] = delivery_date
-                logging.info(f"Fecha de entrega asignada: {delivery_date}")
+            context["delivery_date"] = delivery_date
+            if delivery_date.weekday() == 0 and not context.get("mensaje_lunes_enviado"): 
+                await FacebookService.send_text_message(
+                    sender_id,
+                    f"📦 Nota: El pedido fue programado para el lunes {delivery_date.strftime('%d-%m-%Y')} debido a que fue solicitado un domingo.",
+                    api_key
+                )
+                context["mensaje_lunes_enviado"] = True
+            logging.info(f"Fecha de entrega asignada: {delivery_date}")
 
 
             print(f"Datos extraídos del mensaje:")
