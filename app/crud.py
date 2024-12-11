@@ -371,7 +371,7 @@ class CRUDCuenta:
 
 class CRUDCiudad:
     @staticmethod
-    def create_ciudad(self, db: Session, ciudad_data: CiudadCreate):
+    def create_ciudad(db: Session, ciudad_data: CiudadCreate):
         db_ciudad = Ciudad(nombre=ciudad_data.nombre)
         db.add(db_ciudad)
         db.commit()
