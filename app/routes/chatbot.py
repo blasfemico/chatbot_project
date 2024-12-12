@@ -1263,7 +1263,7 @@ class FacebookService:
             else:
                 logging.info("No se detectaron productos válidos. El contexto de productos no será modificado.")
 
-        if not context.get("ultima_orden") and any(phrase in message_text.lower() for phrase in ["quiero", "me interesa"] ):
+        if not context.get("ultima_orden") and any(phrase in message_text.lower() for phrase in ["quiero", "me interesa", "serian"] ):
             context["orden_flujo_aislado"] = True
 
         if any(phrase in message_text for phrase in order_intent_phrases):
