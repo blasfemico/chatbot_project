@@ -280,9 +280,11 @@ class ChatbotService:
     - Evita decir segun nuestra informacion de base de datos o que sacas la informacion de la base de datos, directamente di la respuesta, en NINGUNA RESPUESTA, incluyas que sacas la informacion de la base de datos
     - Si la respuesta contiene "(revisar base de datos)", reemplaza esa frase con la información adecuada de la base de datos proporcionada.
     - Si responde con referencias o testimonios, mandar la {db_response} sobre los testimonios y referencias, no modifiques ninguan respuesta que provenga de la {db_response}
-    - Nunca des recomendaciones de ir al medico, Nunca reveles que eres una IA
+    - Nunca des recomendaciones de ir al medico, Nunca reveles que eres una IA o Chatbot
     - No se hace ninguna orden atravez de ningun whatsapp, solo atravez del chatbot
     - Vendemos en todos los lugares de las ciudades disponibles
+    - Nunca pidas el numero para resolver problemas con respecto a ordenes, simplemente pidelo para hacer ordenes
+    - No repitas varias veces que si quiere hacer una orden, si ya lo dijiste antes, no repitas
     - SI el cliente pregutna si su pedido esta listo, di que si hizo el proceso de ordenes si, ya esta listo, sino que mande el numero de telfono para comenzar el proceso
     - Cuando se trate de pregutnas de ciudades lista las ciudades a las que vendemos sino dile que podemos  mandar su pedido por paquetería con un costo extra de $120, que si le interesa, le hable al: 479 391 4520
     - NUNCA modifiques una respuesta de la base datos, no importa si es de alcohol o algo parecido.
@@ -651,15 +653,18 @@ class ChatbotService:
         except Exception as e:
             raise ValueError(f"Error al procesar la entrada de productos: {e}")
         return productos
-
-
+    
     @staticmethod
     def extract_phone_number(text: str):
         text = re.sub(r'[\s-]', '', text)
         phone_match = re.search(r"\+?\d{10,15}", text)
-        phone_number = phone_match.group(0) if phone_match else None
-        logging.info(f"Número de teléfono detectado: {phone_number}")
-        return phone_number
+        if phone_match:
+            phone_number = phone_match.group(0)
+            if phone_number.isdigit() and len(phone_number) in range(10, 16):
+                logging.info(f"Número de teléfono detectado: {phone_number}")
+                return phone_number
+        logging.info("No se detectó un número de teléfono válido.")
+        return None
     
     @staticmethod
     def extract_product_and_quantity(text: str, db: Session) -> list:
@@ -668,29 +673,54 @@ class ChatbotService:
 
         if not productos:
             logging.warning("No hay productos disponibles en la base de datos. Continuando sin detección de productos.")
-            return productos_detectados 
+            return productos_detectados
+        
+        text = FacebookService.reorganizar_texto(text)
+        text = FacebookService.evitar_duplicados_cajas(text)
 
         nombres_productos = [producto.nombre.lower() for producto in productos]
-        cantidad_matches = re.findall(r"(\d+)\s*cajas?\s*de\s*([\w\s]+)", text, re.IGNORECASE)
+        numeros_en_palabras = {
+            "uno": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5,
+            "seis": 6, "siete": 7, "ocho": 8, "nueve": 9, "diez": 10
+        }
 
-        if cantidad_matches:
-            for match in cantidad_matches:
-                cantidad = int(match[0])
-                producto = match[1].strip().lower()
-                producto_detectado = next((p for p in nombres_productos if producto in p), None)
-                if producto_detectado:
-                    productos_detectados.append({"producto": producto_detectado, "cantidad": cantidad})
+        for palabra, numero in numeros_en_palabras.items():
+            text = re.sub(rf"\b{palabra}\b", str(numero), text, flags=re.IGNORECASE)
+
+        text = re.sub(r"\bacción\s*30mg\b", "acxion 30 mg", text, flags=re.IGNORECASE)
+        text = re.sub(r"\bacción\b", "acxion", text, flags=re.IGNORECASE)
+        text = re.sub(r"\bla\s+de\s+30mg\b", "acxion 30 mg", text, flags=re.IGNORECASE)
+        text = re.sub(r"(\d+)\s*(mg|ml|gr)", r"\1\2", text, flags=re.IGNORECASE)
+
+
+        lines = text.split("\n")
+        for line in lines:
+            cantidad_matches = re.findall(r"(\d+)\s*cajas?\s*de\s*([\w\s]+)", line, re.IGNORECASE)
+            if cantidad_matches:
+                for match in cantidad_matches:
+                    cantidad = int(match[0])
+                    producto = match[1].strip().lower()
+                    producto_detectado = next((p for p in nombres_productos if producto in p), None)
+                    if producto_detectado:
+                        productos_detectados.append({"producto": producto_detectado, "cantidad": cantidad})
+            else:
+                for producto in nombres_productos:
+                    if producto in line:
+                        cantidad_match = re.search(r"(\d+)\s*cajas?", line, re.IGNORECASE)
+                        cantidad = int(cantidad_match.group(1)) if cantidad_match else 1
+                        productos_detectados.append({"producto": producto, "cantidad": cantidad})
+                        break
 
         if not productos_detectados:
             text_embedding = ChatbotService.model.encode(text, convert_to_tensor=True)
             productos_embeddings = ChatbotService.model.encode(nombres_productos, convert_to_tensor=True)
             similarities = util.cos_sim(text_embedding, productos_embeddings)[0].cpu().numpy()
-            threshold = 0.75
+            threshold = 0.54
             productos_similares = [
                 {"producto": nombres_productos[i], "similarity": similarities[i]} 
-                for i in range(len(similarities)) 
-                if similarities[i] >= threshold
+                for i in range(len(similarities)) if similarities[i] >= threshold
             ]
+
             productos_similares = sorted(
                 productos_similares,
                 key=lambda x: (-x["similarity"], abs(len(x["producto"]) - len(text)))
@@ -698,15 +728,13 @@ class ChatbotService:
 
             if productos_similares:
                 producto_detectado = productos_similares[0]["producto"]
-                cantidad_match = re.findall(r"\b(\d+)\b", text)
-                cantidad = int(cantidad_match[0]) if cantidad_match else 1
+                cantidad_match = re.search(r"(\d+)\s*cajas?", text, re.IGNORECASE)
+                cantidad = int(cantidad_match.group(1)) if cantidad_match else 1
                 productos_detectados.append({"producto": producto_detectado, "cantidad": cantidad})
 
-        if not productos_detectados:
-            logging.info("No se detectaron productos válidos en el mensaje del usuario.")
-
-        logging.info(f"Productos detectados: {productos_detectados}")
         return productos_detectados
+
+
 
     @staticmethod
     def load_product_embeddings(db: Session):
@@ -741,7 +769,7 @@ class ChatbotService:
         embeddings = ChatbotService.model.encode(faq_questions)
 
         similarities = util.cos_sim(question_embedding, embeddings)[0]
-        threshold = 0.78
+        threshold = 0.75
 
         max_similarity_index = similarities.argmax().item()
         max_similarity_value = similarities[max_similarity_index]
@@ -1005,93 +1033,60 @@ class FacebookService:
             "viernes": 4, "sábado": 5, "domingo": 6
         }
 
-        print(f"Calculando fecha de entrega para mensaje: {message_text}")
-
-        if not message_text:
-            print("No se especificó fecha, asignando para mañana")
-            delivery_date = (today + timedelta(days=1)).date()
-            if delivery_date.weekday() == 6:  # Si es domingo, mover al lunes
-                delivery_date += timedelta(days=1)
-            return datetime.strptime(delivery_date.strftime("%d-%m-%Y"), "%d-%m-%Y").date()
-
         message_text = message_text.lower().strip()
 
         if "hoy" in message_text:
-            print("Se detectó 'hoy' en el mensaje, entrega para hoy")
             delivery_date = today.date()
         elif "mañana" in message_text:
-            print("Se detectó 'mañana' en el mensaje, entrega para mañana")
             delivery_date = (today + timedelta(days=1)).date()
         else:
             match = process.extractOne(message_text, weekdays.keys())
-            print(f"Coincidencia encontrada: {match}")
-
-            if match and match[1] >= 70:
-                dia_solicitado = match[0]
-                dia_actual = today.weekday()
-                dia_destino = weekdays[dia_solicitado]
-
-                print(f"Día solicitado: {dia_solicitado}, día actual: {dia_actual}, día destino: {dia_destino}")
-
-                if dia_destino <= dia_actual:
-                    dias_faltantes = 7 - (dia_actual - dia_destino)
-                else:
-                    dias_faltantes = dia_destino - dia_actual
-
-                print(f"Días faltantes calculados: {dias_faltantes}")
+            if match and match[1] >= 50:
+                dia_destino = weekdays[match[0]]
+                dias_faltantes = (dia_destino - today.weekday()) % 7
+                if dias_faltantes == 0:  # Si el día mencionado es el mismo día de la semana
+                    dias_faltantes = 7  # Programar para la próxima semana
                 delivery_date = (today + timedelta(days=dias_faltantes)).date()
             else:
-                print("No se detectó fecha específica, asignando para mañana")
                 delivery_date = (today + timedelta(days=1)).date()
 
-        if delivery_date.weekday() == 6:
-            print("La fecha calculada es domingo, ajustando para el lunes")
+        if delivery_date.weekday() == 6:  # Si es domingo, mover al lunes
             delivery_date += timedelta(days=1)
 
-        return datetime.strptime(delivery_date.strftime("%d-%m-%Y"), "%d-%m-%Y").date()
+        return delivery_date
 
 
     @staticmethod
+    def reorganizar_texto(texto):
+        match = re.findall(r"(\d+)\s*(cajas?|unidades?|de)?\s*(.+?)", texto.lower())
+        if match:
+            for cantidad, _, producto in match:
+                texto = texto.replace(f"{cantidad} caja de {producto}", f"{producto} {cantidad} cajas")
+        return texto
+
+    @staticmethod
+    def evitar_duplicados_cajas(texto):
+        # Remover repeticiones como 'caja caja' o 'cajas cajas'
+        return re.sub(r"(\d+\s*cajas?)(\s+\1)+", r"\1", texto)
+
+    @staticmethod
     def process_product_and_assign_price(message_text: str, db: Session, cuenta_id: int):
-        """
-        Procesa el mensaje para extraer productos y cantidades, compararlos con la base de datos,
-        reorganiza el texto del mensaje y asigna el precio correspondiente a cada producto detectado.
-        """
         productos_disponibles = crud_producto.get_productos_by_cuenta(db, cuenta_id)
         productos_nombres = {p["producto"].lower(): p["precio"] for p in productos_disponibles}
-
-        # Normalizar variantes de "acxion 30 mg"
         message_text = message_text.lower()
-        message_text = message_text.replace("accion 30mg", "acxion 30 mg")
-        message_text = message_text.replace("accion 30 mg", "acxion 30 mg") 
-        message_text = message_text.replace("axion 30mg", "acxion 30 mg")
-        message_text = message_text.replace("axion 30 mg", "acxion 30 mg")
 
-        def reorganizar_texto(texto):
-            match = re.match(r"(\d+)\s*cajas?\s*de\s*(.+)", texto.lower())
-            if match:
-                cantidad = match.group(1)
-                producto = match.group(2)
-                return f"{producto} {cantidad} cajas".strip()
-            return texto.lower()
-        
-        def evitar_duplicados_cajas(texto):
-            return re.sub(r"(\d+\s*cajas?)(\s+\1)+", r"\1", texto)
-
-        message_text_normalized = evitar_duplicados_cajas(reorganizar_texto(message_text))
         productos_detectados = []
 
         for nombre_producto, precio in sorted(productos_nombres.items(), key=lambda x: len(x[0]), reverse=True):
-            if nombre_producto in message_text_normalized:
-                cantidad_match = re.search(r"\b(\d+)\b", nombre_producto)
+            if nombre_producto in message_text:
+                cantidad_match = re.search(r"\b(\d+)\b", message_text)
                 cantidad = int(cantidad_match.group(1)) if cantidad_match else 1
-
                 productos_detectados.append({
                     "producto": nombre_producto,
                     "cantidad": cantidad,
                     "precio": precio
                 })
-                message_text_normalized = message_text_normalized.replace(nombre_producto, "")
+                message_text = message_text.replace(nombre_producto, "")
 
         if not productos_detectados:
             productos_genericos = ChatbotService.extract_product_and_quantity(message_text, db)
@@ -1102,19 +1097,23 @@ class FacebookService:
                     if nombre_producto_original.lower() in nombre_db and "30 mg" in nombre_db.lower():
                         producto_especifico = nombre_db
                         break
-                
+
                 if producto_especifico:
                     nombre_producto = producto_especifico
                 else:
-                    nombre_producto = evitar_duplicados_cajas(reorganizar_texto(f"{producto['cantidad']} cajas de {nombre_producto_original}"))
-                
+                    nombre_producto = nombre_producto_original
+
                 cantidad = producto.get("cantidad", 1)
                 precio_unitario = productos_nombres.get(nombre_producto, 0)
-                producto["precio"] = precio_unitario * cantidad if precio_unitario else 0
-                producto["producto"] = nombre_producto
-                productos_detectados.append(producto)
+                productos_detectados.append({
+                    "producto": nombre_producto,
+                    "cantidad": cantidad,
+                    "precio": precio_unitario
+                })
+
 
         return productos_detectados
+
 
     @staticmethod
     def reset_context(context: dict, cuenta_id: str, sender_id: str):
@@ -1168,12 +1167,13 @@ class FacebookService:
             referral = event.get("entry", [{}])[0].get("messaging", [{}])[0].get("referral", {})
             ad_id = referral.get("ad_id")
 
-            user_profile = FacebookService.get_user_profile(sender_id, api_key)
+            user_profile = FacebookService.get_recent_user_names(cuenta_id, api_key, sender_id)
             user_profile["ad_id"] = ad_id
 
         except (KeyError, IndexError) as e:
             logging.error(f"Error extrayendo datos del payload o perfil: {e}")
             user_profile = {"first_name": "Cliente", "last_name": "Apellido", "ad_id": None}
+
 
         if sender_id not in ChatbotService.initial_message_sent:
             ChatbotService.initial_message_sent[sender_id] = False
@@ -1231,7 +1231,7 @@ class FacebookService:
         if not delivery_date:
             delivery_date = FacebookService.calculate_delivery_date(message_text)
             context["delivery_date"] = delivery_date
-            if delivery_date.weekday() == 0 and not context.get("mensaje_lunes_enviado"):  # Si ajusta para lunes
+            if delivery_date.weekday() == 6 and not context.get("mensaje_lunes_enviado"):  # Si ajusta para lunes
                 await FacebookService.send_text_message(
                     sender_id,
                     f"📦 Nota: El pedido fue programado para el lunes {delivery_date.strftime('%d-%m-%Y')} debido a que fue solicitado un domingo.",
@@ -1345,7 +1345,7 @@ class FacebookService:
             if not delivery_date:
                 delivery_date = FacebookService.calculate_delivery_date(message_text)
             context["delivery_date"] = delivery_date
-            if delivery_date.weekday() == 0 and not context.get("mensaje_lunes_enviado"): 
+            if delivery_date.weekday() == 6 and not context.get("mensaje_lunes_enviado"): 
                 await FacebookService.send_text_message(
                     sender_id,
                     f"📦 Nota: El pedido fue programado para el lunes {delivery_date.strftime('%d-%m-%Y')} debido a que fue solicitado un domingo.",
@@ -1502,7 +1502,7 @@ class FacebookService:
                                         f"📞 Teléfono: {telefono}\n"
                                         f"📍 Ciudad: {ciudad}\n"
                                         "El repartidor se comunicará contigo entre 8 AM y 9 PM para confirmar la entrega. ¡Gracias por tu compra! 😊\n"
-                                        "Recuerda que si es Sabado tu pedido llegara el lunes."
+                                        "Recuerda que si es Domingo tu pedido llegara el lunes."
                                     )
                                     await FacebookService.send_text_message(sender_id, respuesta, api_key)
                                     FacebookService.reset_context(context, cuenta_id, sender_id)
@@ -1545,32 +1545,34 @@ class FacebookService:
                     FacebookService.reset_context(context, cuenta_id, sender_id)
                     return
                 
-            if not context.get("ciudad") and context["orden_flujo_aislado"]:
-                ciudad_deducida = FacebookService.extract_city_from_phone_number(context["telefono"], db) if context.get("telefono") else None
-                if not ciudad_deducida:
+            if context["telefono"]:
+                if not context.get("ciudad") and context["orden_flujo_aislado"]:
+                    ciudad_deducida = FacebookService.extract_city_from_phone_number(context["telefono"], db) if context.get("telefono") else None
+                    if not ciudad_deducida:
+                        cancel_text = (
+                        "Una disculpa, no tengo entregas en tu ciudad,\n"
+                        "Podemos mandar tu pedido por paquetería con un costo extra de $120, si estás interesada por favor escríbeme a mi WhatsApp: 479 391 4520"
+                        )
+                        await FacebookService.send_text_message(sender_id, cancel_text, api_key)
+                        FacebookService.reset_context(context, cuenta_id, sender_id)
+                        print("Orden cancelada por ciudad inválida, contexto reseteado")
+                        return
+                    else:
+                        context["ciudad"] = ciudad_deducida
+                        logging.info(f"Ciudad deducida del número de teléfono: {ciudad_deducida}")
+                        ChatbotService.user_contexts[cuenta_id][sender_id] = context
+            else:
+                
+                if not context.get("telefono") and context["orden_flujo_aislado"]:
+                    print("Falta número de teléfono, cancelando orden")
                     cancel_text = (
-                       "Una disculpa, no tengo entregas en tu ciudad,\n"
-                       "Podemos mandar tu pedido por paquetería con un costo extra de $120, si estás interesada por favor escríbeme a mi WhatsApp: 479 391 4520"
+                        "No podemos procesar tu pedido porque falta el número de teléfono. "
+                        "Por favor, proporciona toda la información necesaria para continuar."
                     )
                     await FacebookService.send_text_message(sender_id, cancel_text, api_key)
+                    logging.info("Pedido rechazado por falta de número de teléfono.")
                     FacebookService.reset_context(context, cuenta_id, sender_id)
-                    print("Orden cancelada por ciudad inválida, contexto reseteado")
                     return
-                else:
-                    context["ciudad"] = ciudad_deducida
-                    logging.info(f"Ciudad deducida del número de teléfono: {ciudad_deducida}")
-                    ChatbotService.user_contexts[cuenta_id][sender_id] = context
-            
-            if not context.get("telefono") and context["orden_flujo_aislado"]:
-                print("Falta número de teléfono, cancelando orden")
-                cancel_text = (
-                    "No podemos procesar tu pedido porque falta el número de teléfono. "
-                    "Por favor, proporciona toda la información necesaria para continuar."
-                )
-                await FacebookService.send_text_message(sender_id, cancel_text, api_key)
-                logging.info("Pedido rechazado por falta de número de teléfono.")
-                FacebookService.reset_context(context, cuenta_id, sender_id)
-                return
             
             await asyncio.sleep(20)
 
@@ -1643,7 +1645,7 @@ class FacebookService:
                             f"📞 Teléfono: {telefono}\n"
                             f"📍 Ciudad: {ciudad}\n"
                             "El repartidor se comunicará contigo entre 8 AM y 9 PM para confirmar la entrega. ¡Gracias por tu compra! 😊\n"
-                            "Recuerda que si es Sabado tu pedido llegara el lunes."
+                            "Recuerda que si es Domingo tu pedido llegara el lunes."
                         )
                         await FacebookService.send_text_message(sender_id, respuesta, api_key)
                         FacebookService.reset_context(context, cuenta_id, sender_id)
@@ -1725,26 +1727,42 @@ class FacebookService:
 
 
     @staticmethod
-    def get_user_profile(user_id: str, api_key: str):
+    def get_recent_user_names(page_id: str, api_key: str, sender_id: str):
         """
-        Obtiene el perfil del usuario de Facebook (nombre y apellido) mediante la API de Graph.
+        Extrae el nombre y apellido del usuario específico de una conversación reciente.
         """
-        api_version = 'v21.0'
-        profile_url = f"https://graph.facebook.com/{api_version}/{user_id}?fields=first_name,last_name&access_token={api_key}"
+        api_version = "v21.0"
+        base_url = f"https://graph.facebook.com/{api_version}/{page_id}/conversations"
+        params = {
+            "fields": "senders",
+            "access_token": api_key,
+        }
 
         try:
-            response = requests.get(profile_url, timeout=10)
+            response = requests.get(base_url, params=params, timeout=10)
             response.raise_for_status()
-            profile_data = response.json()
+            data = response.json()
 
-            return {
-                "first_name": profile_data.get("first_name", "Cliente"),
-                "last_name": profile_data.get("last_name", "Apellido")
-            }
+            if "data" in data:
+                for conversation in data["data"]:
+                    if "senders" in conversation:
+                        for sender in conversation["senders"]["data"]:
+                            if sender.get("id") == sender_id:
+                                full_name = sender.get("name", "Cliente")
+                                name_parts = full_name.split(maxsplit=1)
+                                first_name = name_parts[0] if len(name_parts) > 0 else "Cliente"
+                                last_name = name_parts[1] if len(name_parts) > 1 else "Apellido"
+                                return {
+                                    "first_name": first_name,
+                                    "last_name": last_name,
+                                    "id": sender_id
+                                }
+
         except requests.exceptions.RequestException as e:
-            logging.error(f"Error al obtener el perfil del usuario: {e}")
-            return {"first_name": "Cliente", "last_name": "Apellido"}
-        
+            logging.error(f"Error al obtener nombres de usuarios: {e}")
+
+        return {"first_name": "Cliente", "last_name": "Apellido", "id": sender_id}
+
 
     @staticmethod
     async def send_image_message(recipient_id: str, image_url: str):
