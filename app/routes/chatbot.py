@@ -485,19 +485,44 @@ class ChatbotService:
     def extract_city_from_text(input_text: str, db: Session) -> Optional[str]:
         input_text = unidecode(input_text.lower().strip())
         logging.debug(f"Texto de entrada normalizado: {input_text}")
-        ciudades = {unidecode(ciudad.nombre.lower().strip()) for ciudad in CRUDCiudad.get_all_cities(db)}
-        print(f"Ciudades disponibles en la base de datos (normalizadas): {ciudades}")
-        for ciudad in ciudades:
-            if ciudad in input_text:
-                logging.info(f"Ciudad encontrada directamente en el texto: {ciudad}")
-                return ciudad.title()
+
+        try:
+            with open("ubicaciones.json", "r", encoding="utf-8") as file:
+                ubicaciones = json.load(file)
+        except Exception as e:
+            logging.error(f"Error al cargar el archivo JSON de ubicaciones: {e}")
+            return None
+
+        ciudades_db = {unidecode(ciudad.nombre.lower().strip()) for ciudad in CRUDCiudad.get_all_cities(db)}
+        logging.debug(f"Ciudades disponibles en la base de datos (normalizadas): {ciudades_db}")
+
+        # Buscar coincidencias directas en el texto
+        for estado in ubicaciones["estados"]:
+            for ciudad in estado["ciudades"]:
+                nombre_ciudad = unidecode(ciudad["nombre"].lower())
+                zonas_ciudad = [unidecode(zona.lower()) for zona in ciudad["zonas"]]
+
+                # Verificar si el nombre de la ciudad está en el texto
+                if nombre_ciudad in input_text:
+                    if nombre_ciudad in ciudades_db:
+                        logging.info(f"Ciudad encontrada directamente en el texto: {nombre_ciudad}")
+                        return ciudad["nombre"].title()
+
+                # Verificar si alguna de las zonas está en el texto
+                for zona in zonas_ciudad:
+                    if zona in input_text:
+                        if nombre_ciudad in ciudades_db:
+                            logging.info(f"Zona encontrada que pertenece a la ciudad: {nombre_ciudad}")
+                            return ciudad["nombre"].title()
+
+        # Si no se encuentra en JSON, utilizar GPT para una detección adicional
         try:
             client = OpenAI(api_key=settings.OPENAI_API_KEY)
             prompt = (
                 "Eres un asistente experto en identificar ciudades en mensajes. "
                 "Devuelve únicamente el nombre de una ciudad reconocida en el mensaje, "
                 "sin incluir direcciones o lugares relacionados. La ciudad debe estar "
-                "en esta lista: " + ", ".join(ciudades)
+                "en esta lista: " + ", ".join(ciudades_db)
             )
             response = client.chat.completions.create(
                 model="gpt-4o",
@@ -511,13 +536,13 @@ class ChatbotService:
             ciudad_detectada = response.choices[0].message.content.strip()
             logging.info(f"Ciudad detectada por ChatGPT: {ciudad_detectada}")
             ciudad_normalizada = unidecode(ciudad_detectada.lower().strip())
-            if ciudad_normalizada in ciudades:
+            if ciudad_normalizada in ciudades_db:
                 logging.info(f"Ciudad válida detectada: {ciudad_detectada}")
                 return ciudad_detectada.title()
-    
-    
+
         except Exception as e:
             logging.error(f"Error al utilizar ChatGPT para detectar ciudad: {e}")
+
         logging.warning("No se pudo detectar una ciudad válida")
         return None
 
@@ -674,7 +699,7 @@ class ChatbotService:
         if not productos:
             logging.warning("No hay productos disponibles en la base de datos. Continuando sin detección de productos.")
             return productos_detectados
-        
+
         text = FacebookService.reorganizar_texto(text)
         text = FacebookService.evitar_duplicados_cajas(text)
 
@@ -686,38 +711,46 @@ class ChatbotService:
 
         for palabra, numero in numeros_en_palabras.items():
             text = re.sub(rf"\b{palabra}\b", str(numero), text, flags=re.IGNORECASE)
-
         text = re.sub(r"\bacción\s*30mg\b", "acxion 30 mg", text, flags=re.IGNORECASE)
         text = re.sub(r"\bacción\b", "acxion", text, flags=re.IGNORECASE)
         text = re.sub(r"\bla\s+de\s+30mg\b", "acxion 30 mg", text, flags=re.IGNORECASE)
         text = re.sub(r"(\d+)\s*(mg|ml|gr)", r"\1\2", text, flags=re.IGNORECASE)
 
-
         lines = text.split("\n")
         for line in lines:
-            cantidad_matches = re.findall(r"(\d+)\s*cajas?\s*de\s*([\w\s]+)", line, re.IGNORECASE)
+            cantidad_matches = re.findall(r"(\b\d+\b)\s*cajas?\s*de\s*([\w\s]+)", line, re.IGNORECASE)
             if cantidad_matches:
                 for match in cantidad_matches:
                     cantidad = int(match[0])
+                    if cantidad > 10: 
+                        continue
                     producto = match[1].strip().lower()
                     producto_detectado = next((p for p in nombres_productos if producto in p), None)
                     if producto_detectado:
                         productos_detectados.append({"producto": producto_detectado, "cantidad": cantidad})
             else:
                 for producto in nombres_productos:
-                    if producto in line:
-                        cantidad_match = re.search(r"(\d+)\s*cajas?", line, re.IGNORECASE)
-                        cantidad = int(cantidad_match.group(1)) if cantidad_match else 1
+                    pattern = rf"(\b\d+\b)\s*cajas?\s*{producto}"
+                    cantidad_match = re.search(pattern, line, re.IGNORECASE)
+                    if cantidad_match:
+                        cantidad = int(cantidad_match.group(1))
+                        if cantidad > 10: 
+                            continue
                         productos_detectados.append({"producto": producto, "cantidad": cantidad})
                         break
+        productos_detectados = [
+            producto for producto in productos_detectados
+            if "cajas" in text.lower() or producto["producto"] in text.lower()
+        ]
 
+        # Validar palabras clave adicionales en el contexto para evitar confusiones con direcciones
         if not productos_detectados:
             text_embedding = ChatbotService.model.encode(text, convert_to_tensor=True)
             productos_embeddings = ChatbotService.model.encode(nombres_productos, convert_to_tensor=True)
             similarities = util.cos_sim(text_embedding, productos_embeddings)[0].cpu().numpy()
-            threshold = 0.54
+            threshold = 0.64  # Ajustar umbral de similitud
             productos_similares = [
-                {"producto": nombres_productos[i], "similarity": similarities[i]} 
+                {"producto": nombres_productos[i], "similarity": similarities[i]}
                 for i in range(len(similarities)) if similarities[i] >= threshold
             ]
 
@@ -728,11 +761,13 @@ class ChatbotService:
 
             if productos_similares:
                 producto_detectado = productos_similares[0]["producto"]
-                cantidad_match = re.search(r"(\d+)\s*cajas?", text, re.IGNORECASE)
-                cantidad = int(cantidad_match.group(1)) if cantidad_match else 1
-                productos_detectados.append({"producto": producto_detectado, "cantidad": cantidad})
+                cantidad_match = re.search(r"(\b\d+\b)\s*cajas?", text, re.IGNORECASE)
+                if cantidad_match and int(cantidad_match.group(1)) <= 10:
+                    cantidad = int(cantidad_match.group(1))
+                    productos_detectados.append({"producto": producto_detectado, "cantidad": cantidad})
 
         return productos_detectados
+
 
 
 
@@ -769,7 +804,7 @@ class ChatbotService:
         embeddings = ChatbotService.model.encode(faq_questions)
 
         similarities = util.cos_sim(question_embedding, embeddings)[0]
-        threshold = 0.75
+        threshold = 0.60
 
         max_similarity_index = similarities.argmax().item()
         max_similarity_value = similarities[max_similarity_index]
@@ -880,20 +915,27 @@ class FacebookService:
     "55": "Ciudad de Mexico",
     "81": "Monterrey",
     "33": "Guadalajara",
-    "220": "Puebla", "221": "Puebla", "222": "Puebla",
+    "220": "Puebla", 
+    "221": "Puebla", 
+    "222": "Puebla",
     "664": "Tijuana",
-    "477": "León", "479": "León",
+    "477": "Leon", 
+    "479": "Leon",
     "656": "Ciudad Juarez",
     "686": "Mexicali",
     "667": "Culiacán",
     "442": "Querétaro",
-    "990": "Mérida", "999": "Mérida",
+    "990": "Merida", 
+    "999": "Merida",
     "449": "Aguascalientes",
     "614": "Chihuahua",
     "662": "Hermosillo",
-    "444": "San Luis Potosí", "440": "San Luis Potosí",
+    "444": "San Luis Potosí", 
+    "440": "San Luis Potosí",
     "998": "Cancún",
-    "720": "Toluca", "722": "Toluca", "729": "Toluca",
+    "720": "Toluca", 
+    "722": "Toluca", 
+    "729": "Toluca",
     "844": "Saltillo",
     "443": "morelia",
     "744": "Acapulco",
@@ -971,7 +1013,6 @@ class FacebookService:
     "456": "Valle de Santiago",
     "914": "Nacajuca",
 }
-
     @staticmethod
     def extract_city_from_phone_number(phone_number: str, db: Session) -> str:
         if len(phone_number) < 3:
@@ -996,20 +1037,6 @@ class FacebookService:
             logging.warning(f"La ciudad {ciudad} no está registrada en la base de datos")
             return None
 
-    @staticmethod
-    async def connect_facebook(account: CuentaSchema, db: Session) -> dict:
-        url = f"{settings.FACEBOOK_GRAPH_API_URL}/me/subscribed_apps"
-        headers = {
-            "Authorization": f"Bearer {settings.FACEBOOK_PAGE_ACCESS_TOKEN}",
-            "Content-Type": "application/json",
-        }
-        response = requests.post(url, headers=headers)
-        if response.status_code == 200:
-            return {"status": "Conectado a Facebook Messenger"}
-        else:
-            raise HTTPException(
-                status_code=response.status_code, detail=response.json()
-            )
 
     @staticmethod
     def get_api_key_by_page_id(page_id: str) -> str:
@@ -1066,7 +1093,6 @@ class FacebookService:
 
     @staticmethod
     def evitar_duplicados_cajas(texto):
-        # Remover repeticiones como 'caja caja' o 'cajas cajas'
         return re.sub(r"(\d+\s*cajas?)(\s+\1)+", r"\1", texto)
 
     @staticmethod
@@ -1078,15 +1104,16 @@ class FacebookService:
         productos_detectados = []
 
         for nombre_producto, precio in sorted(productos_nombres.items(), key=lambda x: len(x[0]), reverse=True):
-            if nombre_producto in message_text:
-                cantidad_match = re.search(r"\b(\d+)\b", message_text)
+            pattern = rf"(\b\d+\b)\s*cajas?\s*{nombre_producto}"
+            if nombre_producto in message_text and re.search(pattern, message_text, re.IGNORECASE):
+                cantidad_match = re.search(pattern, message_text)
                 cantidad = int(cantidad_match.group(1)) if cantidad_match else 1
                 productos_detectados.append({
                     "producto": nombre_producto,
                     "cantidad": cantidad,
                     "precio": precio
                 })
-                message_text = message_text.replace(nombre_producto, "")
+                message_text = re.sub(pattern, "", message_text, count=1)
 
         if not productos_detectados:
             productos_genericos = ChatbotService.extract_product_and_quantity(message_text, db)
@@ -1110,7 +1137,6 @@ class FacebookService:
                     "cantidad": cantidad,
                     "precio": precio_unitario
                 })
-
 
         return productos_detectados
 
@@ -1415,7 +1441,6 @@ class FacebookService:
                     FacebookService.reset_context(context, cuenta_id, sender_id)
 
             await asyncio.sleep(20)  
-
             datos_faltantes = []
             if not context.get("telefono"):
                 datos_faltantes.append("número de teléfono")
@@ -1847,6 +1872,7 @@ class FacebookService:
             FacebookService.send_image_message(recipient_id, image_url)
         else:
             FacebookService.send_text_message(recipient_id, answer)
+
     @staticmethod
     def load_api_keys():
         """

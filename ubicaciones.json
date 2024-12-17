@@ -1,0 +1,126 @@
+{
+    "estados": [
+      {
+        "nombre": "Guanajuato",
+        "ciudades": [
+          {
+            "nombre": "Leon",
+            "zonas": ["Centro", "Poliforum", "Plaza Mayor", "El Coecillo"]
+          }
+        ]
+      },
+      {
+        "nombre": "Michoacan",
+        "ciudades": [
+          {
+            "nombre": "Morelia",
+            "zonas": ["Centro Histórico", "Tres Marías", "Camelinas", "Santa María"]
+          }
+        ]
+      },
+      {
+        "nombre": "Queretaro",
+        "ciudades": [
+          {
+            "nombre": "Queretaro",
+            "zonas": ["Centro Histórico", "Juriquilla", "El Refugio", "Milenio III"]
+          }
+        ]
+      },
+      {
+        "nombre": "Tamaulipas",
+        "ciudades": [
+          {
+            "nombre": "Reynosa",
+            "zonas": ["Centro", "Jarachina", "Ribereña", "Las Fuentes"]
+          }
+        ]
+      },
+      {
+        "nombre": "Yucatan",
+        "ciudades": [
+          {
+            "nombre": "Merida",
+            "zonas": ["Centro", "Altabrisa", "Chuburna", "Francisco de Montejo"]
+          }
+        ]
+      },
+      {
+        "nombre": "Chihuahua",
+        "ciudades": [
+          {
+            "nombre": "Juarez",
+            "zonas": ["Centro", "Anapra", "Delicias", "San Lorenzo"]
+          },
+          {
+            "nombre": "Chihuahua",
+            "zonas": ["Centro", "Campestre", "San Felipe", "Universidad"]
+          }
+        ]
+      },
+      {
+        "nombre": "Sonora",
+        "ciudades": [
+          {
+            "nombre": "Hermosillo",
+            "zonas": ["Centro", "Coloso", "Pitic", "Villa de Seris"]
+          }
+        ]
+      },
+      {
+        "nombre": "San Luis Potosi",
+        "ciudades": [
+          {
+            "nombre": "San Luis",
+            "zonas": ["Centro", "Tangamanga", "Lomas", "Himno Nacional"]
+          }
+        ]
+      },
+      {
+        "nombre": "Quintana Roo",
+        "ciudades": [
+          {
+            "nombre": "Cancun",
+            "zonas": ["Zona Hotelera", "Centro", "Playa del Carmen", "Puerto Cancun"]
+          }
+        ]
+      },
+      {
+        "nombre": "Baja California",
+        "ciudades": [
+          {
+            "nombre": "Tijuana",
+            "zonas": ["Centro", "Zona Río", "Playas de Tijuana", "Otay"]
+          }
+        ]
+      },
+      {
+        "nombre": "Sinaloa",
+        "ciudades": [
+          {
+            "nombre": "Mazatlan",
+            "zonas": ["Centro Histórico", "Zona Dorada", "Playa Norte", "Olas Altas"]
+          }
+        ]
+      },
+      {
+        "nombre": "Durango",
+        "ciudades": [
+          {
+            "nombre": "Durango",
+            "zonas": ["Centro", "Guadalupe", "Victoria", "Las Alamedas"]
+          }
+        ]
+      },
+      {
+        "nombre": "Chiapas",
+        "ciudades": [
+          {
+            "nombre": "Tuxtla Gutierrez",
+            "zonas": ["Centro", "La Lomita", "Terán", "El Zapotal"]
+          }
+        ]
+      }
+    ]
+  }
+  
