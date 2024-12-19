@@ -398,16 +398,24 @@ async function fetchOrders() {
 
         // Renderizar las órdenes
         document.getElementById("orders-list").innerHTML = orders.map(order => {
-            let productos = Array.isArray(order.producto) ? order.producto : JSON.parse(order.producto || "[]");
+            // Verificar si `producto` es una lista vacía
+            let productosHtml = "";
+            if (Array.isArray(order.producto) && order.producto.length > 0) {
+                productosHtml = order.producto.map(p => `
+                    <p><strong>Producto:</strong> ${p.producto || "N/A"}</p>
+                    <p><strong>Cantidad:</strong> ${p.cantidad || "0"}</p>
+                    <p><strong>Precio:</strong> ${p.precio || "0"}</p>
+                `).join("");
+            } else {
+                productosHtml = "<p>No hay productos registrados para esta orden.</p>";
+            }
 
-            return productos.map(p => `
+            return `
                 <div>
                     <p><strong>Teléfono:</strong> ${order.phone || "N/A"}</p>
                     <p><strong>Nombre:</strong> ${order.nombre || "N/A"}</p>
                     <p><strong>Apellido:</strong> ${order.apellido || "N/A"}</p>
-                    <p><strong>Producto:</strong> ${p.producto}</p>
-                    <p><strong>Cantidad:</strong> ${p.cantidad}</p>
-                    <p><strong>Precio:</strong> ${p.precio}</p>
+                    ${productosHtml}
                     <p><strong>Ciudad:</strong> ${order.ciudad || "N/A"}</p>
                     <p><strong>Dirección:</strong> ${order.address || "N/A"}</p>
                     <p><strong>Ad ID:</strong> ${order.ad_id || "N/A"}</p>
@@ -415,13 +423,14 @@ async function fetchOrders() {
                     <button onclick="deleteOrder(${order.id})">Eliminar</button>
                 </div>
                 <hr>
-            `).join("");
+            `;
         }).join("");
     } catch (error) {
         console.error("Error al cargar órdenes:", error);
         document.getElementById("orders-list").innerHTML = "<p>Error al cargar órdenes.</p>";
     }
 }
+
 
 
 async function fetchOrderById() {

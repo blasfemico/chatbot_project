@@ -743,16 +743,20 @@ class ChatbotService:
             if "cajas" in text.lower() or producto["producto"] in text.lower()
         ]
 
-        # Validar palabras clave adicionales en el contexto para evitar confusiones con direcciones
         if not productos_detectados:
             text_embedding = ChatbotService.model.encode(text, convert_to_tensor=True)
             productos_embeddings = ChatbotService.model.encode(nombres_productos, convert_to_tensor=True)
             similarities = util.cos_sim(text_embedding, productos_embeddings)[0].cpu().numpy()
-            threshold = 0.64  # Ajustar umbral de similitud
+            threshold = 0.57  # Ajustar umbral de similitud
+
             productos_similares = [
                 {"producto": nombres_productos[i], "similarity": similarities[i]}
                 for i in range(len(similarities)) if similarities[i] >= threshold
             ]
+
+            # Mostrar productos que cumplen con el umbral
+            for producto in productos_similares:
+                print(f"Producto recogido del umbral: {producto['producto']}, Similitud: {producto['similarity']:.2f}")
 
             productos_similares = sorted(
                 productos_similares,
@@ -761,6 +765,8 @@ class ChatbotService:
 
             if productos_similares:
                 producto_detectado = productos_similares[0]["producto"]
+                print(f"Producto detectado: {producto_detectado}, Similitud: {productos_similares[0]['similarity']:.2f}")
+
                 cantidad_match = re.search(r"(\b\d+\b)\s*cajas?", text, re.IGNORECASE)
                 if cantidad_match and int(cantidad_match.group(1)) <= 10:
                     cantidad = int(cantidad_match.group(1))
@@ -804,7 +810,7 @@ class ChatbotService:
         embeddings = ChatbotService.model.encode(faq_questions)
 
         similarities = util.cos_sim(question_embedding, embeddings)[0]
-        threshold = 0.60
+        threshold = 0.62
 
         max_similarity_index = similarities.argmax().item()
         max_similarity_value = similarities[max_similarity_index]
@@ -921,7 +927,7 @@ class FacebookService:
     "664": "Tijuana",
     "477": "Leon", 
     "479": "Leon",
-    "656": "Ciudad Juarez",
+    "656": "Juarez",
     "686": "Mexicali",
     "667": "Culiacán",
     "442": "Querétaro",
@@ -1053,31 +1059,34 @@ class FacebookService:
         return api_key
     
     @staticmethod
-    def calculate_delivery_date(message_text: str) -> date:
+    def calculate_delivery_date(message_text: Optional[str]) -> date:
         today = datetime.today()
         weekdays = {
             "lunes": 0, "martes": 1, "miércoles": 2, "jueves": 3,
             "viernes": 4, "sábado": 5, "domingo": 6
         }
+        message_text = (message_text or "").lower().strip()
 
-        message_text = message_text.lower().strip()
-
-        if "hoy" in message_text:
+        if not message_text:
+            delivery_date = (today + timedelta(days=1)).date()
+        elif "hoy" in message_text:
             delivery_date = today.date()
         elif "mañana" in message_text:
             delivery_date = (today + timedelta(days=1)).date()
         else:
+
             match = process.extractOne(message_text, weekdays.keys())
-            if match and match[1] >= 50:
+            if match and match[1] >= 57:  
                 dia_destino = weekdays[match[0]]
                 dias_faltantes = (dia_destino - today.weekday()) % 7
-                if dias_faltantes == 0:  # Si el día mencionado es el mismo día de la semana
-                    dias_faltantes = 7  # Programar para la próxima semana
+                if dias_faltantes == 0: 
+                    dias_faltantes = 7
                 delivery_date = (today + timedelta(days=dias_faltantes)).date()
             else:
                 delivery_date = (today + timedelta(days=1)).date()
 
-        if delivery_date.weekday() == 6:  # Si es domingo, mover al lunes
+
+        if delivery_date.weekday() == 6:  
             delivery_date += timedelta(days=1)
 
         return delivery_date
@@ -1085,10 +1094,12 @@ class FacebookService:
 
     @staticmethod
     def reorganizar_texto(texto):
-        match = re.findall(r"(\d+)\s*(cajas?|unidades?|de)?\s*(.+?)", texto.lower())
+        match = re.findall(r"(\b\d+\b)\s*(cajas?|unidades?|de)?\s*([\w\s]+)", texto.lower())
         if match:
             for cantidad, _, producto in match:
-                texto = texto.replace(f"{cantidad} caja de {producto}", f"{producto} {cantidad} cajas")
+                producto = producto.strip()
+                texto = re.sub(rf"\b\d+\s*caja\s*de\s*{producto}\b", f"{cantidad} cajas {producto} {cantidad} cajas", texto)
+                texto = re.sub(rf"{producto}\s*\d+\s*cajas\b", f"{cantidad} cajas {producto} {cantidad} cajas", texto)
         return texto
 
     @staticmethod
@@ -1099,44 +1110,34 @@ class FacebookService:
     def process_product_and_assign_price(message_text: str, db: Session, cuenta_id: int):
         productos_disponibles = crud_producto.get_productos_by_cuenta(db, cuenta_id)
         productos_nombres = {p["producto"].lower(): p["precio"] for p in productos_disponibles}
-        message_text = message_text.lower()
+
+        # Normalizar el nombre del producto para búsqueda flexible
+        def normalize_nombre(nombre):
+            return re.sub(r"(\b\d+\b\s*cajas?\b|\bcajas?\b)", "", nombre).strip()
+
+        productos_normalizados = {
+            normalize_nombre(nombre): precio for nombre, precio in productos_nombres.items()
+        }
+
+        logging.info(f"Productos disponibles normalizados: {productos_normalizados}")
+        message_text = FacebookService.reorganizar_texto(message_text.lower())
+        productos_genericos = ChatbotService.extract_product_and_quantity(message_text, db)
 
         productos_detectados = []
-
-        for nombre_producto, precio in sorted(productos_nombres.items(), key=lambda x: len(x[0]), reverse=True):
-            pattern = rf"(\b\d+\b)\s*cajas?\s*{nombre_producto}"
-            if nombre_producto in message_text and re.search(pattern, message_text, re.IGNORECASE):
-                cantidad_match = re.search(pattern, message_text)
-                cantidad = int(cantidad_match.group(1)) if cantidad_match else 1
-                productos_detectados.append({
-                    "producto": nombre_producto,
-                    "cantidad": cantidad,
-                    "precio": precio
-                })
-                message_text = re.sub(pattern, "", message_text, count=1)
-
-        if not productos_detectados:
-            productos_genericos = ChatbotService.extract_product_and_quantity(message_text, db)
-            for producto in productos_genericos:
-                nombre_producto_original = producto['producto']
-                producto_especifico = None
-                for nombre_db in productos_nombres.keys():
-                    if nombre_producto_original.lower() in nombre_db and "30 mg" in nombre_db.lower():
-                        producto_especifico = nombre_db
-                        break
-
-                if producto_especifico:
-                    nombre_producto = producto_especifico
-                else:
-                    nombre_producto = nombre_producto_original
-
-                cantidad = producto.get("cantidad", 1)
-                precio_unitario = productos_nombres.get(nombre_producto, 0)
-                productos_detectados.append({
-                    "producto": nombre_producto,
-                    "cantidad": cantidad,
-                    "precio": precio_unitario
-                })
+        for producto in productos_genericos:
+            nombre_producto_original = producto['producto']
+            cantidad = producto.get("cantidad", 1)
+            producto_especifico = next(
+                (nombre_db for nombre_db in productos_nombres.keys() if nombre_producto_original in nombre_db),
+                nombre_producto_original
+            )
+            precio_unitario = productos_nombres.get(producto_especifico, 0)
+            logging.info(f"Producto detectado: {producto_especifico}, Cantidad: {cantidad}, Precio: {precio_unitario}")
+            productos_detectados.append({
+                "producto": producto_especifico,
+                "cantidad": cantidad,
+                "precio": precio_unitario
+            })
 
         return productos_detectados
 
@@ -1294,24 +1295,6 @@ class FacebookService:
 
         if any(phrase in message_text for phrase in order_intent_phrases):
             context["orden_flujo_aislado"] = True
-
-        if "ultima_orden" in context and context["ultima_orden"] and context["orden_flujo_aislado"]:
-            tiempo_actual = datetime.now()
-            diferencia = (tiempo_actual - context["ultima_orden"]).total_seconds()
-            print(f'Contexto en ultima orden: {context}')
-
-            if diferencia < 1800:  # 30 minutos
-                tiempo_restante = int((1800 - diferencia) / 60)
-                await FacebookService.send_text_message(
-                    sender_id,
-                    f"Ya realizaste un pedido recientemente. Por favor, intenta de nuevo en {tiempo_restante} minutos.",
-                    api_key
-                )
-                context["orden_flujo_aislado"] = False
-                ChatbotService.user_contexts[cuenta_id][sender_id] = context
-            else:
-                context["ultima_orden"] = None
-                ChatbotService.user_contexts[cuenta_id][sender_id] = context
 
         ChatbotService.user_contexts[cuenta_id][sender_id] = context
         await FacebookService.handle_context_logic(context, sender_id, cuenta_id, api_key, db, message_text)
@@ -1788,30 +1771,6 @@ class FacebookService:
 
         return {"first_name": "Cliente", "last_name": "Apellido", "id": sender_id}
 
-
-    @staticmethod
-    async def send_image_message(recipient_id: str, image_url: str):
-        url = f"{settings.FACEBOOK_GRAPH_API_URL}/me/messages"
-        headers = {"Content-Type": "application/json"}
-        data = {
-            "recipient": {"id": recipient_id},
-            "message": {
-                "attachment": {
-                    "type": "image",
-                    "payload": {"url": image_url, "is_reusable": True},
-                }
-            },
-            "access_token": settings.FACEBOOK_PAGE_ACCESS_TOKEN,
-        }
-        response = requests.post(url, headers=headers, json=data)
-        if response.status_code != 200:
-            raise HTTPException(
-                status_code=response.status_code,
-                detail="Error al enviar el mensaje de imagen.",
-            )
-        return response.json()
-
-
     @staticmethod
     async def send_text_message(recipient_id: str, text: str, api_key: str, cooldown: int = 60):
         """
@@ -1862,17 +1821,6 @@ class FacebookService:
 
         return response.json()
     
-    @staticmethod
-    def send_message_or_image(recipient_id: str, answer: str):
-        image_url_pattern = r"(https?://[^\s]+(\.jpg|\.jpeg|\.png|\.gif))"
-        match = re.search(image_url_pattern, answer)
-
-        if match:
-            image_url = match.group(0)
-            FacebookService.send_image_message(recipient_id, image_url)
-        else:
-            FacebookService.send_text_message(recipient_id, answer)
-
     @staticmethod
     def load_api_keys():
         """
