@@ -27,12 +27,12 @@ class Order(Base):
     apellido = Column(String, default="N/A") 
     delivery_date = Column(Date, nullable=True) 
 
+
 class Ciudad(Base):
     __tablename__ = "ciudades"
     id = Column(Integer, primary_key=True)
     nombre = Column(String, unique=True, nullable=False)
-    phone_prefix = Column(String, unique=True, nullable=True)  
-    
+
     productos = relationship("ProductoCiudad", back_populates="ciudad")
 
 
@@ -42,12 +42,9 @@ class ProductoCiudad(Base):
     ciudad_id = Column(
         Integer, ForeignKey("ciudades.id", ondelete="CASCADE"), nullable=False
     )
-    producto_id = Column(
-        Integer, ForeignKey("productos.id", ondelete="CASCADE"), nullable=False
-    )
+    producto_nombre = Column(String, nullable=False)
 
     ciudad = relationship("Ciudad", back_populates="productos")
-    producto = relationship("Producto", back_populates="ciudades")
 
 
 class Producto(Base):
@@ -55,7 +52,6 @@ class Producto(Base):
     id = Column(Integer, primary_key=True)
     nombre = Column(String, nullable=False)
 
-    ciudades = relationship("ProductoCiudad", back_populates="producto")
 
 
 class Cuenta(Base):

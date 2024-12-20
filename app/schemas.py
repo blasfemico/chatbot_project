@@ -169,15 +169,15 @@ class CiudadCreate(BaseModel):
 
 
 class ProductoCiudadCreate(BaseModel):
-    productos: List[str]
-
+    productos: List[str]  
 
 class CiudadResponse(CiudadCreate):
     id: int
-    productos: List[str]
+    productos: List[str]  
 
     class Config:
         from_attributes = True
+
 
 class APIKeyCreate(BaseModel):
     name: str

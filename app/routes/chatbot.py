@@ -61,7 +61,7 @@ order_intent_phrases = [
     "quiero obtener el producto", "me interesa hacer un pedido", "necesito adquirir algo",
     "me gustaría ordenar ahora", "voy a comprar el producto", "quiero hacer mi orden", "order",
     "quiero agendar mi pedido", "quiero procesar una orden", "quiero adquirir el producto ahora", "voy a comprar", "voy a querer",
-    "ocupo", "quiero", "quiero caja"
+    "ocupo","quiero caja"
 ]
 
 
@@ -124,7 +124,7 @@ class ChatbotService:
     def update_keywords_based_on_feedback(text: str):
         feedback_phrases = [
             "Muchas gracias", "No gracias", "ya no", "listo", "luego te hablo",
-            "no necesito más", "ok", "gracias por info", "adios"
+            "no necesito más", "ok", "gracias por info", "adios", "bien"
         ]
         for phrase in feedback_phrases:
             if phrase.lower() in text.lower():
@@ -246,8 +246,13 @@ class ChatbotService:
             raise ValueError("El parámetro 'productos_por_ciudad' debe ser un diccionario no vacío.")
         ciudades_str = ", ".join([str(ciudad) for ciudad in ciudades_disponibles])
         productos_por_ciudad_str = "\n".join(
-            [f"{ciudad.capitalize()}: {', '.join(map(str, productos))}" for ciudad, productos in productos_por_ciudad.items()]
+            [
+                f"{ciudad.capitalize()}: {', '.join(map(str, productos))}"
+                for ciudad, productos in productos_por_ciudad.items()
+                if productos  
+            ]
         )
+
         ChatbotService.update_keywords_based_on_feedback(question)
      
         feedback_phrases = [
@@ -279,6 +284,7 @@ class ChatbotService:
     - Acuerdate, vendemos en todos los lugares de una ciudad, osea, todas las zonas de las ciudades en {ciudades_str}
     - Evita decir segun nuestra informacion de base de datos o que sacas la informacion de la base de datos, directamente di la respuesta, en NINGUNA RESPUESTA, incluyas que sacas la informacion de la base de datos
     - Si la respuesta contiene "(revisar base de datos)", reemplaza esa frase con la información adecuada de la base de datos proporcionada.
+    - si mencionan sobre fotos de algun producto, revisa las preguntas y respuestas y manda la que tiene el enlace 
     - Si responde con referencias o testimonios, mandar la {db_response} sobre los testimonios y referencias, no modifiques ninguan respuesta que provenga de la {db_response}
     - Nunca des recomendaciones de ir al medico, Nunca reveles que eres una IA o Chatbot
     - No se hace ninguna orden atravez de ningun whatsapp, solo atravez del chatbot
@@ -561,18 +567,23 @@ class ChatbotService:
         productos_por_ciudad = {}
         for ciudad in ciudades_disponibles:
             productos = (
-                db.query(Producto)
-                .join(ProductoCiudad)
+                db.query(ProductoCiudad)
                 .filter(ProductoCiudad.ciudad_id == ciudad.id)
                 .all()
             )
-            productos_nombres = [producto.nombre for producto in productos]
+            productos_nombres = [producto.producto_nombre for producto in productos]
             if productos_nombres:
                 productos_por_ciudad[ciudad.nombre.lower()] = productos_nombres
 
+
         productos_por_ciudad_str = "\n".join(
-            [f"{ciudad.capitalize()}: {', '.join(productos)}" for ciudad, productos in productos_por_ciudad.items()]
+        [
+        f"{ciudad.capitalize()}: {', '.join(map(str, productos))}"
+        for ciudad, productos in productos_por_ciudad.items()
+        if productos  
+        ]
         )
+
         intent_prompt = f"""
         Eres un asistente de ventas que ayuda a interpretar preguntas sobre disponibilidad de productos en ciudades específicas.
 
@@ -693,6 +704,9 @@ class ChatbotService:
     
     @staticmethod
     def extract_product_and_quantity(text: str, db: Session) -> list:
+        """
+        Detecta productos y cantidades en el texto, utilizando nombres de productos de la base de datos.
+        """
         productos_detectados = []
         productos = db.query(Producto).all()
 
@@ -701,7 +715,7 @@ class ChatbotService:
             return productos_detectados
 
         text = FacebookService.reorganizar_texto(text)
-        text = FacebookService.evitar_duplicados_cajas(text)
+        text = re.sub(r"\bde\s*30\b", "30mg", text, flags=re.IGNORECASE)
 
         nombres_productos = [producto.nombre.lower() for producto in productos]
         numeros_en_palabras = {
@@ -709,68 +723,50 @@ class ChatbotService:
             "seis": 6, "siete": 7, "ocho": 8, "nueve": 9, "diez": 10
         }
 
+
         for palabra, numero in numeros_en_palabras.items():
             text = re.sub(rf"\b{palabra}\b", str(numero), text, flags=re.IGNORECASE)
-        text = re.sub(r"\bacción\s*30mg\b", "acxion 30 mg", text, flags=re.IGNORECASE)
-        text = re.sub(r"\bacción\b", "acxion", text, flags=re.IGNORECASE)
-        text = re.sub(r"\bla\s+de\s+30mg\b", "acxion 30 mg", text, flags=re.IGNORECASE)
-        text = re.sub(r"(\d+)\s*(mg|ml|gr)", r"\1\2", text, flags=re.IGNORECASE)
 
-        lines = text.split("\n")
-        for line in lines:
-            cantidad_matches = re.findall(r"(\b\d+\b)\s*cajas?\s*de\s*([\w\s]+)", line, re.IGNORECASE)
-            if cantidad_matches:
-                for match in cantidad_matches:
-                    cantidad = int(match[0])
-                    if cantidad > 10: 
-                        continue
-                    producto = match[1].strip().lower()
-                    producto_detectado = next((p for p in nombres_productos if producto in p), None)
-                    if producto_detectado:
-                        productos_detectados.append({"producto": producto_detectado, "cantidad": cantidad})
-            else:
-                for producto in nombres_productos:
-                    pattern = rf"(\b\d+\b)\s*cajas?\s*{producto}"
-                    cantidad_match = re.search(pattern, line, re.IGNORECASE)
-                    if cantidad_match:
-                        cantidad = int(cantidad_match.group(1))
-                        if cantidad > 10: 
-                            continue
-                        productos_detectados.append({"producto": producto, "cantidad": cantidad})
-                        break
-        productos_detectados = [
-            producto for producto in productos_detectados
-            if "cajas" in text.lower() or producto["producto"] in text.lower()
+        cantidad_match = re.findall(r"(\b\d+\b)\s*(cajas?|unidades?)", text, re.IGNORECASE)
+        cantidades_genericas = [int(num) for num in re.findall(r"\b\d+\b", text)]
+
+        text_embedding = ChatbotService.model.encode(text, convert_to_tensor=True)
+        productos_embeddings = ChatbotService.model.encode(nombres_productos, convert_to_tensor=True)
+        similarities = util.cos_sim(text_embedding, productos_embeddings)[0].cpu().numpy()
+        threshold = 0.60
+
+        print("Similitudes calculadas para el texto ingresado:")
+        for i, nombre in enumerate(nombres_productos):
+            print(f"Producto: {nombre}, Similitud: {similarities[i]:.2f}")
+
+        productos_similares = [
+            {"producto": nombres_productos[i], "similarity": similarities[i]}
+            for i in range(len(similarities)) if similarities[i] >= threshold
         ]
 
-        if not productos_detectados:
-            text_embedding = ChatbotService.model.encode(text, convert_to_tensor=True)
-            productos_embeddings = ChatbotService.model.encode(nombres_productos, convert_to_tensor=True)
-            similarities = util.cos_sim(text_embedding, productos_embeddings)[0].cpu().numpy()
-            threshold = 0.57  # Ajustar umbral de similitud
+        productos_similares = sorted(
+            productos_similares,
+            key=lambda x: (-x["similarity"], abs(len(x["producto"]) - len(text)))
+        )
 
-            productos_similares = [
-                {"producto": nombres_productos[i], "similarity": similarities[i]}
-                for i in range(len(similarities)) if similarities[i] >= threshold
-            ]
+        if productos_similares:
+            producto_detectado = productos_similares[0]["producto"]
+            print(f"Producto seleccionado: {producto_detectado} con similitud {productos_similares[0]['similarity']:.2f}")
 
-            # Mostrar productos que cumplen con el umbral
-            for producto in productos_similares:
-                print(f"Producto recogido del umbral: {producto['producto']}, Similitud: {producto['similarity']:.2f}")
+    
+            cantidad = 1  # Valor por defecto
 
-            productos_similares = sorted(
-                productos_similares,
-                key=lambda x: (-x["similarity"], abs(len(x["producto"]) - len(text)))
-            )
+            if cantidad_match:
+                # Si hay cantidades asociadas a "cajas" o "unidades"
+                cantidad = int(cantidad_match[0][0])
+            elif cantidades_genericas:
+                # Si no hay "cajas", usar el primer número genérico detectado
+                cantidad = cantidades_genericas[0]
 
-            if productos_similares:
-                producto_detectado = productos_similares[0]["producto"]
-                print(f"Producto detectado: {producto_detectado}, Similitud: {productos_similares[0]['similarity']:.2f}")
+            # Limitar a un máximo de 10 cajas
+            cantidad = min(cantidad, 10)
 
-                cantidad_match = re.search(r"(\b\d+\b)\s*cajas?", text, re.IGNORECASE)
-                if cantidad_match and int(cantidad_match.group(1)) <= 10:
-                    cantidad = int(cantidad_match.group(1))
-                    productos_detectados.append({"producto": producto_detectado, "cantidad": cantidad})
+            productos_detectados.append({"producto": producto_detectado, "cantidad": cantidad})
 
         return productos_detectados
 
@@ -810,7 +806,7 @@ class ChatbotService:
         embeddings = ChatbotService.model.encode(faq_questions)
 
         similarities = util.cos_sim(question_embedding, embeddings)[0]
-        threshold = 0.62
+        threshold = 0.67
 
         max_similarity_index = similarities.argmax().item()
         max_similarity_value = similarities[max_similarity_index]
@@ -1091,15 +1087,47 @@ class FacebookService:
 
         return delivery_date
 
+    @staticmethod
+    def normalize_text(text: str) -> str:
+        """
+        Normaliza el texto para manejar diferentes formas de escribir nombres y cantidades de productos.
+        """
+        conversiones = {
+            r"\bacción\s*30\s*miligramos?\b": "acxion 30mg",
+            r"\bacción\s*de\s*30\s*miligramos?\b": "acxion 30mg",
+            r"\bacción\s*30\s*mg\b": "acxion 30mg",
+            r"\baxión\s*de\s*30\s*miligramos?\b": "acxion 30mg",
+            r"\baxión\s*30\s*mg\b": "acxion 30mg",
+            r"\bde\s*30\b": "acxion 30mg",
+            r"\bmiligramos?\b": "mg",
+            r"\bmililitros?\b": "ml",
+            r"\bgramos?\b": "g"
+        }
+
+        for patron, reemplazo in conversiones.items():
+            text = re.sub(patron, reemplazo, text, flags=re.IGNORECASE)
+
+        text = re.sub(r"\s+", " ", text).strip().lower()
+        return text
+
 
     @staticmethod
-    def reorganizar_texto(texto):
-        match = re.findall(r"(\b\d+\b)\s*(cajas?|unidades?|de)?\s*([\w\s]+)", texto.lower())
-        if match:
-            for cantidad, _, producto in match:
+    def reorganizar_texto(texto: str) -> str:
+        """
+        Reorganiza el texto para normalizar nombres y evitar duplicados.
+        """
+        texto = FacebookService.normalize_text(texto)
+        matches = re.findall(r"(\b\d+\b)\s*(cajas?|unidades?|de)?\s*([\w\s]+)", texto)
+        if matches:
+            for cantidad, _, producto in matches:
                 producto = producto.strip()
-                texto = re.sub(rf"\b\d+\s*caja\s*de\s*{producto}\b", f"{cantidad} cajas {producto} {cantidad} cajas", texto)
-                texto = re.sub(rf"{producto}\s*\d+\s*cajas\b", f"{cantidad} cajas {producto} {cantidad} cajas", texto)
+                texto = re.sub(
+                    rf"(\b{cantidad}\b\s*(cajas?|unidades?|de)?\s*{producto})",
+                    f"{cantidad} cajas {producto}",
+                    texto,
+                    flags=re.IGNORECASE
+                )
+        texto = re.sub(r"(\d+\s*cajas?)(\s+\1)+", r"\1", texto)  # Evitar duplicados
         return texto
 
     @staticmethod
@@ -1917,3 +1945,4 @@ async def verify_webhook(request: Request):
     else:
         raise HTTPException(status_code=403, detail="Token de verificación inválido")
     
+

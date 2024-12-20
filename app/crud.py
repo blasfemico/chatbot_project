@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from sqlalchemy import select
+from fuzzywuzzy import fuzz
 from fastapi import HTTPException
 from app.models import (
     FAQ,
@@ -400,52 +400,39 @@ class CRUDCiudad:
             return "N/A"
 
 
-
-    def add_products_to_city(
-        self, db: Session, ciudad_id: int, productos_nombres: List[str]
-    ):
+    @staticmethod
+    def add_products_to_city(db: Session, ciudad_id: int, productos: List[str]):
         ciudad = db.query(Ciudad).filter(Ciudad.id == ciudad_id).first()
         if not ciudad:
-            raise HTTPException(status_code=404, detail="Ciudad no encontrada")
+            raise HTTPException(status_code=404, detail="Ciudad no encontrada.")
 
         productos_asociados = []
-        for nombre_producto in productos_nombres:
-            producto = db.query(Producto).filter(Producto.nombre == nombre_producto).first()
-            if not producto:
-                producto = Producto(nombre=nombre_producto)
-                db.add(producto)
-                db.commit()
-                db.refresh(producto)
-
+        for producto_nombre in productos:
             producto_ciudad = ProductoCiudad(
-                ciudad_id=ciudad.id, producto_id=producto.id
+                ciudad_id=ciudad.id,
+                producto_nombre=producto_nombre
             )
             db.add(producto_ciudad)
-            productos_asociados.append({
-                "id": producto.id,
-                "nombre": producto.nombre
-            })
+            productos_asociados.append(producto_nombre)
         db.commit()
         return {"message": "Productos asociados a la ciudad", "productos": productos_asociados}
-
-
+    
     def get_products_for_city(self, db: Session, ciudad_id: int):
         productos = (
-            db.query(Producto.id, Producto.nombre)
-            .join(ProductoCiudad, Producto.id == ProductoCiudad.producto_id)
+            db.query(ProductoCiudad.producto_nombre)
             .filter(ProductoCiudad.ciudad_id == ciudad_id)
             .all()
         )
-        return [{"id": p.id, "nombre": p.nombre} for p in productos]
+        return [p.producto_nombre for p in productos]
 
     
-    def delete_product_from_city(self, db: Session, ciudad_id: int, producto_id: int):
-        """
-        Elimina un producto específico de una ciudad.
-        """
+    def delete_product_from_city(self, db: Session, ciudad_id: int, producto_nombre: str):
         producto_ciudad = (
             db.query(ProductoCiudad)
-            .filter(ProductoCiudad.ciudad_id == ciudad_id, ProductoCiudad.producto_id == producto_id)
+            .filter(
+                ProductoCiudad.ciudad_id == ciudad_id,
+                ProductoCiudad.producto_nombre == producto_nombre
+            )
             .first()
         )
         if producto_ciudad:
@@ -453,20 +440,14 @@ class CRUDCiudad:
             db.commit()
             return True
         return False
-    
+
     def delete_all_products_from_city(self, db: Session, ciudad_id: int):
-        """
-        Elimina todos los productos asociados a una ciudad.
-        """
-        try:
-            productos_ciudad = db.query(ProductoCiudad).filter(ProductoCiudad.ciudad_id == ciudad_id)
-            count = productos_ciudad.count() 
-            if count > 0:
-                productos_ciudad.delete(synchronize_session=False)
-                db.commit()
-            return {"deleted_count": count}
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+        productos_ciudad = db.query(ProductoCiudad).filter(ProductoCiudad.ciudad_id == ciudad_id)
+        count = productos_ciudad.count()
+        if count > 0:
+            productos_ciudad.delete(synchronize_session=False)
+            db.commit()
+        return {"deleted_count": count}
 
     def delete_ciudad(self, db: Session, ciudad_id: int):
         ciudad = db.query(Ciudad).filter(Ciudad.id == ciudad_id).first()
@@ -478,5 +459,4 @@ class CRUDCiudad:
     @staticmethod
     def get_all_cities(db: Session):
         return db.query(Ciudad).all()
-    
     
