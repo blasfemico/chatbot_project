@@ -26,3 +26,4 @@ Cython
 stanza
 rapidfuzz 
 fuzzywuzzy
+python-Levenshtein

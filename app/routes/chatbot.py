@@ -103,7 +103,7 @@ class ChatbotService:
             ChatbotService.timers[sender_id].cancel()  
 
         ChatbotService.timers[sender_id] = asyncio.get_event_loop().call_later(
-            86400,  # 24 horas en segundos
+            86400,
             ChatbotService.reset_initial_message_state,
             sender_id
         )
@@ -206,8 +206,7 @@ class ChatbotService:
 
         ¡Entrega a domicilio GRATIS y pagas al recibir!
 
-        Si quieres hacer una orden, Mandame tu numero de telefono y te dare mas datos que necesito para hacer la orden
-        recuerda mencionarme que productos quieres sino, pondre 1 caja de {primer_producto} para tu orden!
+        Si quieres hacer una orden, Mandame primero tu numero de telefono y luego procedere a pedir mas datos para realizar la orden!
 
         db_response:
         {db_response}
@@ -501,27 +500,29 @@ class ChatbotService:
 
         ciudades_db = {unidecode(ciudad.nombre.lower().strip()) for ciudad in CRUDCiudad.get_all_cities(db)}
         logging.debug(f"Ciudades disponibles en la base de datos (normalizadas): {ciudades_db}")
-
-        # Buscar coincidencias directas en el texto
         for estado in ubicaciones["estados"]:
+            nombre_estado = unidecode(estado["nombre"].lower())
             for ciudad in estado["ciudades"]:
                 nombre_ciudad = unidecode(ciudad["nombre"].lower())
                 zonas_ciudad = [unidecode(zona.lower()) for zona in ciudad["zonas"]]
 
-                # Verificar si el nombre de la ciudad está en el texto
-                if nombre_ciudad in input_text:
+                if nombre_ciudad in input_text and nombre_estado in input_text:
+                    if nombre_ciudad in ciudades_db:
+                        logging.info(f"Ciudad encontrada con su estado: {nombre_ciudad}, Estado: {nombre_estado}")
+                        return ciudad["nombre"].title()
+
+
+                if nombre_ciudad in input_text and nombre_ciudad != nombre_estado:
                     if nombre_ciudad in ciudades_db:
                         logging.info(f"Ciudad encontrada directamente en el texto: {nombre_ciudad}")
                         return ciudad["nombre"].title()
 
-                # Verificar si alguna de las zonas está en el texto
+           
                 for zona in zonas_ciudad:
-                    if zona in input_text:
-                        if nombre_ciudad in ciudades_db:
-                            logging.info(f"Zona encontrada que pertenece a la ciudad: {nombre_ciudad}")
-                            return ciudad["nombre"].title()
+                    if zona in input_text and nombre_ciudad in ciudades_db:
+                        logging.info(f"Zona encontrada que pertenece a la ciudad: {nombre_ciudad}")
+                        return ciudad["nombre"].title()
 
-        # Si no se encuentra en JSON, utilizar GPT para una detección adicional
         try:
             client = OpenAI(api_key=settings.OPENAI_API_KEY)
             prompt = (
@@ -551,8 +552,6 @@ class ChatbotService:
 
         logging.warning("No se pudo detectar una ciudad válida")
         return None
-
-
 
     @staticmethod
     async def ask_question(
@@ -703,44 +702,59 @@ class ChatbotService:
         return None
     
     @staticmethod
-    def extract_product_and_quantity(text: str, db: Session) -> list:
+    def extract_product_and_quantity(text: str, db: Session, cuenta_id: int) -> list:
         """
-        Detecta productos y cantidades en el texto, utilizando nombres de productos de la base de datos.
+        Detecta productos y cantidades en el texto, utilizando nombres y precios de productos de la base de datos.
         """
         productos_detectados = []
-        productos = db.query(Producto).all()
+        productos_disponibles = crud_producto.get_productos_by_cuenta(db, cuenta_id)
+        productos_nombres = {p["producto"].lower(): p["precio"] for p in productos_disponibles}
 
-        if not productos:
+        if not productos_disponibles:
             logging.warning("No hay productos disponibles en la base de datos. Continuando sin detección de productos.")
             return productos_detectados
 
         text = FacebookService.reorganizar_texto(text)
         text = re.sub(r"\bde\s*30\b", "30mg", text, flags=re.IGNORECASE)
 
-        nombres_productos = [producto.nombre.lower() for producto in productos]
         numeros_en_palabras = {
             "uno": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5,
             "seis": 6, "siete": 7, "ocho": 8, "nueve": 9, "diez": 10
         }
 
-
         for palabra, numero in numeros_en_palabras.items():
             text = re.sub(rf"\b{palabra}\b", str(numero), text, flags=re.IGNORECASE)
 
-        cantidad_match = re.findall(r"(\b\d+\b)\s*(cajas?|unidades?)", text, re.IGNORECASE)
-        cantidades_genericas = [int(num) for num in re.findall(r"\b\d+\b", text)]
+        precios_en_texto = [int(num) for num in re.findall(r"\b\d+\b", text)]
+        productos_por_precio = [
+            {"producto": nombre, "precio": precio}
+            for nombre, precio in productos_nombres.items()
+            if precio in precios_en_texto
+        ]
 
+        for producto in productos_por_precio:
+            cantidad_match = re.search(r"(\d+)\s*(cajas?|unidades?)", producto["producto"])
+            cantidad = int(cantidad_match.group(1)) if cantidad_match else 1  
+            cantidad = min(cantidad, 10)  
+            productos_detectados.append({"producto": producto["producto"], "cantidad": cantidad, "precio": producto["precio"]})
+
+        # Embeddings para similitud
         text_embedding = ChatbotService.model.encode(text, convert_to_tensor=True)
-        productos_embeddings = ChatbotService.model.encode(nombres_productos, convert_to_tensor=True)
+        productos_embeddings = ChatbotService.model.encode(list(productos_nombres.keys()), convert_to_tensor=True)
         similarities = util.cos_sim(text_embedding, productos_embeddings)[0].cpu().numpy()
         threshold = 0.60
 
-        print("Similitudes calculadas para el texto ingresado:")
-        for i, nombre in enumerate(nombres_productos):
-            print(f"Producto: {nombre}, Similitud: {similarities[i]:.2f}")
+        # Mostrar similitudes calculadas
+        print("\nSimilitudes calculadas para el texto ingresado:")
+        for i, nombre_producto in enumerate(productos_nombres.keys()):
+            print(f"Producto: {nombre_producto}, Similitud: {similarities[i]:.2f}")
 
         productos_similares = [
-            {"producto": nombres_productos[i], "similarity": similarities[i]}
+            {
+                "producto": list(productos_nombres.keys())[i],
+                "similarity": similarities[i],
+                "precio": productos_nombres.get(list(productos_nombres.keys())[i])
+            }
             for i in range(len(similarities)) if similarities[i] >= threshold
         ]
 
@@ -751,22 +765,21 @@ class ChatbotService:
 
         if productos_similares:
             producto_detectado = productos_similares[0]["producto"]
-            print(f"Producto seleccionado: {producto_detectado} con similitud {productos_similares[0]['similarity']:.2f}")
-
-    
-            cantidad = 1  # Valor por defecto
-
-            if cantidad_match:
-                # Si hay cantidades asociadas a "cajas" o "unidades"
-                cantidad = int(cantidad_match[0][0])
-            elif cantidades_genericas:
-                # Si no hay "cajas", usar el primer número genérico detectado
-                cantidad = cantidades_genericas[0]
-
-            # Limitar a un máximo de 10 cajas
+            precio_producto = productos_similares[0]["precio"]
+            cantidad_match = re.search(r"(\d+)\s*(cajas?|unidades?)", producto_detectado)
+            cantidad = int(cantidad_match.group(1)) if cantidad_match else 1
             cantidad = min(cantidad, 10)
 
-            productos_detectados.append({"producto": producto_detectado, "cantidad": cantidad})
+            # Mostrar producto seleccionado y similitud
+            print(f"\nProducto seleccionado: {producto_detectado}")
+            print(f"Similitud: {productos_similares[0]['similarity']:.2f}")
+            print(f"Precio: {precio_producto}")
+
+            productos_detectados.append({
+                "producto": producto_detectado,
+                "cantidad": cantidad,
+                "precio": precio_producto
+            })
 
         return productos_detectados
 
@@ -1017,20 +1030,26 @@ class FacebookService:
 }
     @staticmethod
     def extract_city_from_phone_number(phone_number: str, db: Session) -> str:
-        if len(phone_number) < 3:
+        if len(phone_number) < 2:
             logging.warning(f"Número de teléfono demasiado corto para extraer un prefijo LADA: {phone_number}")
             return None
 
         lada = phone_number[:3]
-        logging.info(f"Prefijo LADA extraído: {lada}")
+        logging.info(f"Prefijo LADA de 3 dígitos extraído: {lada}")
         ciudad = FacebookService.LADA_CIUDADES.get(lada)
+
+        if not ciudad:
+            lada = phone_number[:2]
+            logging.info(f"Prefijo LADA de 2 dígitos extraído: {lada}")
+            ciudad = FacebookService.LADA_CIUDADES.get(lada)
+
         if not ciudad:
             logging.warning(f"No se encontró una ciudad para el prefijo {lada}")
             return None
 
         crud_ciudad = CRUDCiudad()
         ciudades_db = crud_ciudad.get_all_cities(db)
-        ciudades_db_nombres = [ciudad_db.nombre.lower() for ciudad_db in ciudades_db]   
+        ciudades_db_nombres = [ciudad_db.nombre.lower() for ciudad_db in ciudades_db]
 
         if ciudad.lower() in ciudades_db_nombres:
             logging.info(f"Ciudad encontrada y validada en la base de datos: {ciudad}")
@@ -1038,7 +1057,6 @@ class FacebookService:
         else:
             logging.warning(f"La ciudad {ciudad} no está registrada en la base de datos")
             return None
-
 
     @staticmethod
     def get_api_key_by_page_id(page_id: str) -> str:
@@ -1070,22 +1088,19 @@ class FacebookService:
         elif "mañana" in message_text:
             delivery_date = (today + timedelta(days=1)).date()
         else:
-
             match = process.extractOne(message_text, weekdays.keys())
             if match and match[1] >= 57:  
                 dia_destino = weekdays[match[0]]
                 dias_faltantes = (dia_destino - today.weekday()) % 7
-                if dias_faltantes == 0: 
-                    dias_faltantes = 7
                 delivery_date = (today + timedelta(days=dias_faltantes)).date()
             else:
                 delivery_date = (today + timedelta(days=1)).date()
-
 
         if delivery_date.weekday() == 6:  
             delivery_date += timedelta(days=1)
 
         return delivery_date
+
 
     @staticmethod
     def normalize_text(text: str) -> str:
@@ -1127,7 +1142,7 @@ class FacebookService:
                     texto,
                     flags=re.IGNORECASE
                 )
-        texto = re.sub(r"(\d+\s*cajas?)(\s+\1)+", r"\1", texto)  # Evitar duplicados
+        texto = re.sub(r"(\d+\s*cajas?)(\s+\1)+", r"\1", texto)  
         return texto
 
     @staticmethod
@@ -1138,8 +1153,6 @@ class FacebookService:
     def process_product_and_assign_price(message_text: str, db: Session, cuenta_id: int):
         productos_disponibles = crud_producto.get_productos_by_cuenta(db, cuenta_id)
         productos_nombres = {p["producto"].lower(): p["precio"] for p in productos_disponibles}
-
-        # Normalizar el nombre del producto para búsqueda flexible
         def normalize_nombre(nombre):
             return re.sub(r"(\b\d+\b\s*cajas?\b|\bcajas?\b)", "", nombre).strip()
 
@@ -1149,7 +1162,7 @@ class FacebookService:
 
         logging.info(f"Productos disponibles normalizados: {productos_normalizados}")
         message_text = FacebookService.reorganizar_texto(message_text.lower())
-        productos_genericos = ChatbotService.extract_product_and_quantity(message_text, db)
+        productos_genericos = ChatbotService.extract_product_and_quantity(message_text, db, cuenta_id)
 
         productos_detectados = []
         for producto in productos_genericos:
@@ -1286,7 +1299,7 @@ class FacebookService:
         if not delivery_date:
             delivery_date = FacebookService.calculate_delivery_date(message_text)
             context["delivery_date"] = delivery_date
-            if delivery_date.weekday() == 6 and not context.get("mensaje_lunes_enviado"):  # Si ajusta para lunes
+            if delivery_date.weekday() == 6 and not context.get("mensaje_lunes_enviado"):  
                 await FacebookService.send_text_message(
                     sender_id,
                     f"📦 Nota: El pedido fue programado para el lunes {delivery_date.strftime('%d-%m-%Y')} debido a que fue solicitado un domingo.",
@@ -1337,7 +1350,6 @@ class FacebookService:
             if not context.get("mensaje_predeterminado_enviado"):
                 response_text = (
                     "Para agendar tu pedido solo necesito los siguientes datos:\n"
-                    "• Tu número de teléfono(si ya lo dio, no hace falta repetirlo)\n"
                     "• Dirección con número de casa\n"
                     "• Ciudad en la que vives (Digame el nombre de la ciudad completo)\n"
                     "• Número de cajas que necesitas"
@@ -1413,7 +1425,7 @@ class FacebookService:
             ChatbotService.user_contexts[cuenta_id][sender_id] = context
             print(f"Contexto actualizado después de extraer datos: {context}")
 
-            await asyncio.sleep(300)
+            await asyncio.sleep(300) #300
 
             if ciudad is not None and context["orden_flujo_aislado"]:
                 ciudades = {ciudad[0].lower() for ciudad in db.query(Ciudad.nombre).all()}
@@ -1567,7 +1579,7 @@ class FacebookService:
                     logging.error(f"Error al procesar similar_question: {str(e)}")
                     return
 
-            await asyncio.sleep(150)
+            await asyncio.sleep(150) #150
 
             if ciudad is not None and context["orden_flujo_aislado"]:
                 ciudades = {ciudad[0].lower() for ciudad in db.query(Ciudad.nombre).all()}
