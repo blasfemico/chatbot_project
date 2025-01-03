@@ -173,6 +173,7 @@ class ProductoCiudadCreate(BaseModel):
 
 class CiudadResponse(CiudadCreate):
     id: int
+    nombre: str
     productos: List[str]  
 
     class Config:

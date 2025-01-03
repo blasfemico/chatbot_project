@@ -24,7 +24,7 @@ class OrderService:
         """
         productos = []
         try:
-            items = re.split(r"\s*y\s*", input_text.lower())  # Separar por "y"
+            items = re.split(r"\s*y\s*", input_text.lower())
             for item in items:
                 match = re.match(r"(\d+)\s*cajas?\s+de\s+(.+)", item.strip())
                 if match:

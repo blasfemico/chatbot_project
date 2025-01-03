@@ -306,7 +306,7 @@ class CRUDOrder:
                     "email": order.email or "N/A",
                     "address": order.address or "N/A",
                     "ciudad": order.ciudad or "N/A",
-                    "producto": productos,  # Lista de diccionarios con `precio`
+                    "producto": productos,  
                     "cantidad_cajas": order.cantidad_cajas or "0",
                     "nombre": order.nombre or "N/A",
                     "apellido": order.apellido or "N/A",

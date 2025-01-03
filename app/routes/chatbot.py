@@ -35,7 +35,9 @@ from collections import defaultdict
 from unidecode import unidecode
 from datetime import timedelta
 from rapidfuzz import process
-from fuzzywuzzy import process, fuzz
+from fuzzywuzzy import process
+from app.routes.address_detection import AddressDetection
+
 
 cache = TTLCache(maxsize=100, ttl=3600)
 logging.basicConfig(level=logging.INFO)
@@ -425,69 +427,31 @@ class ChatbotService:
 
     @staticmethod
     def extract_address_from_text(message_text: str, sender_id: str, cuenta_id: int, db: Session) -> Optional[str]:
-        context = ChatbotService.user_contexts.get(cuenta_id, {}).get(sender_id, {})
-        direccion_existente = context.get("direccion")
-        if direccion_existente and direccion_existente != "No se proporciona una dirección válida en el mensaje":
-            logging.info(f"Dirección ya detectada anteriormente: {direccion_existente}")
-            return direccion_existente
-        lines = [line.strip() for line in message_text.split('\n') if line.strip()]
-        message_text = " ".join(lines)
-        logging.debug(f"Mensaje normalizado: {message_text}")
+        logging.info(f"Texto recibido para detección de dirección: {message_text}")
+
         try:
-            client = OpenAI(api_key=settings.OPENAI_API_KEY)
-            response = client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": "Eres un asistente experto en procesar mensajes para detectar direcciones. Devuelve 'None' si no hay una dirección válida."},
-                    {"role": "user", "content": f"Por favor, identifica la dirección en el siguiente mensaje (excluyendo ciudades conocidas):\n\n{message_text}"}
-                ],
-                max_tokens=50,
-                temperature=0.5
-            )
+            detected_parts = AddressDetection.detect_address_parts(message_text)
+            direccion_detectada = detected_parts.get("direccion")
 
-            direccion = response.choices[0].message.content.strip()
-            if direccion.lower() in ["none", "null", "no se proporciona una dirección válida en el mensaje", "", "no hay dirección reconocida"]:
-                direccion = None
+            if direccion_detectada:
+                logging.info(f"Dirección detectada: {direccion_detectada}")
 
-            if direccion:
-                ChatbotService.user_contexts.setdefault(cuenta_id, {}).setdefault(sender_id, {})["direccion"] = direccion
-                logging.info(f"Dirección detectada por ChatGPT: {direccion}")
-                return direccion
+                context = ChatbotService.user_contexts.setdefault(cuenta_id, {}).setdefault(sender_id, {})
+                context["direccion"] = direccion_detectada
+                return direccion_detectada
+
+            logging.info("No se detectó una dirección válida en el mensaje.")
+            return None
         except Exception as e:
-            logging.error(f"Error al utilizar ChatGPT para detectar dirección: {e}")
-        message_text = re.sub(r'[^\w\sáéíóúüñ#,-]', '', message_text.lower())
-        message_text = re.sub(r'([a-záéíóúüñ]+)(\d+)', r'\1 \2', message_text)
-        logging.debug(f"Texto procesado: {message_text}")
-        
-        direccion_patterns = [
-            r'\b(?:calle|avenida|avda|av|paseo|ps|plaza|plz|carrer|cr|camino|cm|carretera|ctra)\s*[\wáéíóúüñ]*(?:\s+[\wáéíóúüñ]*)*\s+\d+',
-            r'\b\d{1,5}\s*(?:calle|avenida|avda|av|paseo|ps|plaza|plz|carrer|cr|camino|cm|carretera|ctra)\s*[\wáéíóúüñ]*(?:\s+[\wáéíóúüñ]*)*\b',
-        ]
-
-        ciudades = {ciudad[0].lower() for ciudad in db.query(Ciudad.nombre).all()}
-        logging.debug(f"Ciudades cargadas: {ciudades}")
-        
-        direccion = None
-        for pattern in direccion_patterns:
-            match = re.search(pattern, message_text, re.IGNORECASE)
-            if match:
-                posible_direccion = match.group(0).strip()
-                if not any(ciudad in posible_direccion.lower() for ciudad in ciudades):
-                    direccion = posible_direccion
-                    logging.debug(f"Dirección detectada por patrón: {direccion}")
-                    break
-
-        if direccion:
-            ChatbotService.user_contexts.setdefault(cuenta_id, {}).setdefault(sender_id, {})["direccion"] = direccion
-            logging.info(f"Dirección detectada por reglas: {direccion}")
-        else:
-            ChatbotService.user_contexts.setdefault(cuenta_id, {}).setdefault(sender_id, {})["direccion"] = None
-            logging.info("No se detectó una dirección válida. Contexto actualizado con None.")
-
-        return direccion
+            logging.error(f"Error al procesar la detección de dirección: {e}")
+            return None
 
     @staticmethod
     def extract_city_from_text(input_text: str, db: Session) -> Optional[str]:
+        """
+        Detección de ciudades en varias capas: patrones regulares, coincidencias con JSON, 
+        zonas de ciudades y consulta a modelo GPT como último recurso.
+        """
         input_text = unidecode(input_text.lower().strip())
         logging.debug(f"Texto de entrada normalizado: {input_text}")
 
@@ -498,38 +462,58 @@ class ChatbotService:
             logging.error(f"Error al cargar el archivo JSON de ubicaciones: {e}")
             return None
 
-        ciudades_db = {unidecode(ciudad.nombre.lower().strip()) for ciudad in CRUDCiudad.get_all_cities(db)}
-        logging.debug(f"Ciudades disponibles en la base de datos (normalizadas): {ciudades_db}")
+        ciudades_db = {unidecode(ciudad.nombre.lower().strip()): ciudad.nombre.title() for ciudad in CRUDCiudad.get_all_cities(db)}
+        logging.debug(f"Ciudades disponibles en la base de datos (normalizadas): {ciudades_db.keys()}")
+
+        patrones = [
+            r"\bciudad\s+([\w\s]+)",           # Palabras después de "ciudad"
+            r"\bcol(?:onia)?\s+([\w\s]+)",     # Palabras después de "colonia"
+            r"\bmunicipio\s+([\w\s]+)",        # Palabras después de "municipio"
+            r"\b(?:en|de|a|para)\s+([\w\s]+)(?:,|$)",  # Palabras después de preposiciones
+            r"\b([\w\s]+?)\s+(baja california|nuevo león|veracruz|guanajuato|chihuahua)"  # Estados
+        ]
+
+        # Método 1: Coincidencia mediante patrones
+        for patron in patrones:
+            match = re.search(patron, input_text)
+            if match:
+                probable_city = unidecode(match.group(1).strip().lower())
+                if probable_city in ciudades_db:
+                    logging.info(f"Ciudad detectada mediante patrón: {ciudades_db[probable_city]}")
+                    return ciudades_db[probable_city]
+
+        # Método 2: Coincidencia directa de nombre de ciudad en el texto
+        for nombre_ciudad_normalizado, nombre_ciudad_original in ciudades_db.items():
+            if nombre_ciudad_normalizado in input_text:
+                logging.info(f"Ciudad detectada directamente en el texto: {nombre_ciudad_original}")
+                return nombre_ciudad_original
+
+        # Método 3: Coincidencia con zonas de ciudades y estados
         for estado in ubicaciones["estados"]:
             nombre_estado = unidecode(estado["nombre"].lower())
             for ciudad in estado["ciudades"]:
                 nombre_ciudad = unidecode(ciudad["nombre"].lower())
-                zonas_ciudad = [unidecode(zona.lower()) for zona in ciudad["zonas"]]
+                zonas_ciudad = [unidecode(zona.lower()) for zona in ciudad.get("zonas", [])]
 
                 if nombre_ciudad in input_text and nombre_estado in input_text:
                     if nombre_ciudad in ciudades_db:
                         logging.info(f"Ciudad encontrada con su estado: {nombre_ciudad}, Estado: {nombre_estado}")
-                        return ciudad["nombre"].title()
+                        return ciudades_db[nombre_ciudad]
 
-
-                if nombre_ciudad in input_text and nombre_ciudad != nombre_estado:
+                if any(zona in input_text for zona in zonas_ciudad):
                     if nombre_ciudad in ciudades_db:
-                        logging.info(f"Ciudad encontrada directamente en el texto: {nombre_ciudad}")
-                        return ciudad["nombre"].title()
+                        logging.info(f"Zona detectada que pertenece a la ciudad: {nombre_ciudad}")
+                        return ciudades_db[nombre_ciudad]
 
-           
-                for zona in zonas_ciudad:
-                    if zona in input_text and nombre_ciudad in ciudades_db:
-                        logging.info(f"Zona encontrada que pertenece a la ciudad: {nombre_ciudad}")
-                        return ciudad["nombre"].title()
-
+        # Método 4: Último recurso - GPT
+        logging.warning("No se detectó ninguna ciudad mediante patrones ni coincidencias directas. Probando con GPT.")
         try:
             client = OpenAI(api_key=settings.OPENAI_API_KEY)
             prompt = (
                 "Eres un asistente experto en identificar ciudades en mensajes. "
                 "Devuelve únicamente el nombre de una ciudad reconocida en el mensaje, "
                 "sin incluir direcciones o lugares relacionados. La ciudad debe estar "
-                "en esta lista: " + ", ".join(ciudades_db)
+                "en esta lista: " + ", ".join(ciudades_db.values())
             )
             response = client.chat.completions.create(
                 model="gpt-4o",
@@ -541,17 +525,19 @@ class ChatbotService:
                 temperature=0.5
             )
             ciudad_detectada = response.choices[0].message.content.strip()
-            logging.info(f"Ciudad detectada por ChatGPT: {ciudad_detectada}")
+            logging.info(f"Ciudad detectada por GPT: {ciudad_detectada}")
             ciudad_normalizada = unidecode(ciudad_detectada.lower().strip())
             if ciudad_normalizada in ciudades_db:
-                logging.info(f"Ciudad válida detectada: {ciudad_detectada}")
-                return ciudad_detectada.title()
+                logging.info(f"Ciudad válida detectada por GPT: {ciudades_db[ciudad_normalizada]}")
+                return ciudades_db[ciudad_normalizada]
 
         except Exception as e:
-            logging.error(f"Error al utilizar ChatGPT para detectar ciudad: {e}")
+            logging.error(f"Error al utilizar GPT para detectar ciudad: {e}")
 
-        logging.warning("No se pudo detectar una ciudad válida")
+        logging.warning("No se pudo detectar ninguna ciudad válida.")
         return None
+
+
 
     @staticmethod
     async def ask_question(
@@ -705,6 +691,7 @@ class ChatbotService:
     def extract_product_and_quantity(text: str, db: Session, cuenta_id: int) -> list:
         """
         Detecta productos y cantidades en el texto, utilizando nombres y precios de productos de la base de datos.
+        Utiliza embeddings y compara precios para hacer la selección más precisa.
         """
         productos_detectados = []
         productos_disponibles = crud_producto.get_productos_by_cuenta(db, cuenta_id)
@@ -714,66 +701,49 @@ class ChatbotService:
             logging.warning("No hay productos disponibles en la base de datos. Continuando sin detección de productos.")
             return productos_detectados
 
-        text = FacebookService.reorganizar_texto(text)
-        text = re.sub(r"\bde\s*30\b", "30mg", text, flags=re.IGNORECASE)
-
-        numeros_en_palabras = {
-            "uno": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5,
-            "seis": 6, "siete": 7, "ocho": 8, "nueve": 9, "diez": 10
-        }
-
-        for palabra, numero in numeros_en_palabras.items():
-            text = re.sub(rf"\b{palabra}\b", str(numero), text, flags=re.IGNORECASE)
-
+        text = FacebookService.reorganizar_texto(text.lower())
         precios_en_texto = [int(num) for num in re.findall(r"\b\d+\b", text)]
-        productos_por_precio = [
-            {"producto": nombre, "precio": precio}
-            for nombre, precio in productos_nombres.items()
-            if precio in precios_en_texto
-        ]
 
-        for producto in productos_por_precio:
-            cantidad_match = re.search(r"(\d+)\s*(cajas?|unidades?)", producto["producto"])
-            cantidad = int(cantidad_match.group(1)) if cantidad_match else 1  
-            cantidad = min(cantidad, 10)  
-            productos_detectados.append({"producto": producto["producto"], "cantidad": cantidad, "precio": producto["precio"]})
 
-        # Embeddings para similitud
         text_embedding = ChatbotService.model.encode(text, convert_to_tensor=True)
         productos_embeddings = ChatbotService.model.encode(list(productos_nombres.keys()), convert_to_tensor=True)
         similarities = util.cos_sim(text_embedding, productos_embeddings)[0].cpu().numpy()
-        threshold = 0.60
-
-        # Mostrar similitudes calculadas
-        print("\nSimilitudes calculadas para el texto ingresado:")
+        logging.info("\nSimilitudes calculadas para el texto ingresado:")
         for i, nombre_producto in enumerate(productos_nombres.keys()):
-            print(f"Producto: {nombre_producto}, Similitud: {similarities[i]:.2f}")
+            logging.info(f"Producto: {nombre_producto}, Similitud: {similarities[i]:.2f}")
 
-        productos_similares = [
-            {
-                "producto": list(productos_nombres.keys())[i],
-                "similarity": similarities[i],
-                "precio": productos_nombres.get(list(productos_nombres.keys())[i])
-            }
-            for i in range(len(similarities)) if similarities[i] >= threshold
-        ]
+        threshold = 0.60
+        productos_similares = []
+        for i, (nombre_producto, precio_producto) in enumerate(productos_nombres.items()):
+            similitud = similarities[i]
 
-        productos_similares = sorted(
-            productos_similares,
-            key=lambda x: (-x["similarity"], abs(len(x["producto"]) - len(text)))
-        )
+            if precios_en_texto:
+                proximidad_precio = min(abs(precio_producto - p) for p in precios_en_texto)
+                score_precio = 1 / (1 + proximidad_precio)  
+            else:
+                score_precio = 0
+
+            score_total = similitud + score_precio
+
+            if score_total >= threshold:
+                productos_similares.append({
+                    "producto": nombre_producto,
+                    "similarity": similitud,
+                    "precio": precio_producto,
+                    "score_total": score_total,
+                })
+
+        productos_similares = sorted(productos_similares, key=lambda x: -x["score_total"])
 
         if productos_similares:
             producto_detectado = productos_similares[0]["producto"]
             precio_producto = productos_similares[0]["precio"]
-            cantidad_match = re.search(r"(\d+)\s*(cajas?|unidades?)", producto_detectado)
+            cantidad_match = re.search(r"(\d+)\s*(cajas?|unidades?)", text)
             cantidad = int(cantidad_match.group(1)) if cantidad_match else 1
             cantidad = min(cantidad, 10)
-
-            # Mostrar producto seleccionado y similitud
-            print(f"\nProducto seleccionado: {producto_detectado}")
-            print(f"Similitud: {productos_similares[0]['similarity']:.2f}")
-            print(f"Precio: {precio_producto}")
+            logging.info(f"\nProducto seleccionado: {producto_detectado}")
+            logging.info(f"Similitud: {productos_similares[0]['similarity']:.2f}")
+            logging.info(f"Precio: {precio_producto}")
 
             productos_detectados.append({
                 "producto": producto_detectado,
@@ -1207,10 +1177,18 @@ class FacebookService:
     @staticmethod
     async def process_event_with_context(event, cuenta_id: int, api_key: str, db: Session):
         """
-        Procesa un evento individual de Facebook Messenger.
+        Procesa un evento individual de Facebook Messenger usando el page_id del evento y el archivo api_keys.json.
         """
         sender_id = event["sender"]["id"]
-        message_id = event.get("message", {}).get("mid")
+        page_id = event.get("recipient", {}).get("id")  
+
+        api_keys = FacebookService.load_api_keys()
+        access_token = api_keys.get(page_id)
+
+        if not access_token:
+            logging.error(f"No se encontró el access_token para el page_id {page_id}.")
+            return
+
         message_text = event.get("message", {}).get("text", "").strip()
         is_audio = "audio" in event.get("message", {}).get("attachments", [{}])[0].get("type", "")
 
@@ -1219,27 +1197,32 @@ class FacebookService:
             await FacebookService.send_text_message(
                 sender_id,
                 "¡Muchas gracias por comunicarse con nosotros!",
-                api_key
+                access_token  
             )
             return
-        
+
         if is_audio:
             await FacebookService.send_text_message(
                 sender_id,
                 "Lo siento, no puedo procesar audios. Por favor, escribe tu mensaje para que pueda ayudarte.",
-                api_key
+                access_token 
             )
             return
 
         try:
-            referral = event.get("entry", [{}])[0].get("messaging", [{}])[0].get("referral", {})
-            ad_id = referral.get("ad_id")
+            extracted_data = FacebookService.extract_ad_id_and_last_name(event, sender_id)
+            first_name = extracted_data.get("first_name", "Cliente")
+            last_name = extracted_data.get("last_name", "Apellido")
+            ad_id = extracted_data.get("ad_id")
 
-            user_profile = FacebookService.get_recent_user_names(cuenta_id, api_key, sender_id)
-            user_profile["ad_id"] = ad_id
+            user_profile = {
+                "first_name": first_name,
+                "last_name": last_name,
+                "ad_id": ad_id
+            }
 
-        except (KeyError, IndexError) as e:
-            logging.error(f"Error extrayendo datos del payload o perfil: {e}")
+        except Exception as e:
+            logging.error(f"Error al extraer ad_id y apellido: {e}")
             user_profile = {"first_name": "Cliente", "last_name": "Apellido", "ad_id": None}
 
 
@@ -1773,43 +1756,72 @@ class FacebookService:
         return {"status": "OK"}
 
 
-
     @staticmethod
-    def get_recent_user_names(page_id: str, api_key: str, sender_id: str):
+    def extract_ad_id_and_last_name(event: dict, sender_id: str) -> dict:
         """
-        Extrae el nombre y apellido del usuario específico de una conversación reciente.
+        Extrae el ad_id, nombre y apellido del usuario utilizando múltiples métodos para cualquier page_id.
         """
-        api_version = "v21.0"
-        base_url = f"https://graph.facebook.com/{api_version}/{page_id}/conversations"
-        params = {
-            "fields": "senders",
-            "access_token": api_key,
+        result = {
+            "ad_id": None,
+            "first_name": "Cliente",
+            "last_name": "Apellido"
         }
+        page_id = event.get("recipient", {}).get("id")
+        if not page_id:
+            logging.error("No se encontró el page_id en el payload del evento.")
+            return result
 
         try:
-            response = requests.get(base_url, params=params, timeout=10)
-            response.raise_for_status()
-            data = response.json()
+    
+            api_keys = FacebookService.load_api_keys()
+            if not api_keys:
+                logging.error("No se pudo cargar el archivo api_keys.json o está vacío.")
+                return result
 
-            if "data" in data:
-                for conversation in data["data"]:
-                    if "senders" in conversation:
-                        for sender in conversation["senders"]["data"]:
-                            if sender.get("id") == sender_id:
-                                full_name = sender.get("name", "Cliente")
-                                name_parts = full_name.split(maxsplit=1)
-                                first_name = name_parts[0] if len(name_parts) > 0 else "Cliente"
-                                last_name = name_parts[1] if len(name_parts) > 1 else "Apellido"
-                                return {
-                                    "first_name": first_name,
-                                    "last_name": last_name,
-                                    "id": sender_id
-                                }
+            access_token = api_keys.get(page_id)
+            if not access_token:
+                logging.error(f"No se encontró el access_token para la página con ID {page_id}.")
+                return result
 
-        except requests.exceptions.RequestException as e:
-            logging.error(f"Error al obtener nombres de usuarios: {e}")
+            logging.info(f"Access token encontrado para el page_id {page_id}: {access_token[:10]}***")
 
-        return {"first_name": "Cliente", "last_name": "Apellido", "id": sender_id}
+            referral = event.get("referral", {})
+            ad_id = referral.get("ad_id")
+            if ad_id:
+                result["ad_id"] = ad_id
+                logging.info(f"ad_id extraído del payload: {ad_id}")
+
+            referral_url = referral.get("ref")
+            if referral_url:
+                ad_id_match = re.search(r"ad_id=(\d+)", referral_url)
+                if ad_id_match:
+                    result["ad_id"] = ad_id_match.group(1)
+                    logging.info(f"ad_id extraído de la URL de referencia: {result['ad_id']}")
+
+            url = f"https://graph.facebook.com/v12.0/{sender_id}"
+            params = {"fields": "first_name,last_name", "access_token": access_token}
+            response = requests.get(url, params=params, timeout=10)
+
+            if response.status_code == 200:
+                profile_data = response.json()
+                result["first_name"] = profile_data.get("first_name", "Cliente")
+                result["last_name"] = profile_data.get("last_name", "Apellido")
+                logging.info(f"Nombre extraído: {result['first_name']}, Apellido extraído: {result['last_name']}")
+            else:
+                logging.error(f"Error en la consulta a la API Graph: {response.status_code} - {response.text}")
+
+        except FileNotFoundError:
+            logging.error("El archivo api_keys.json no se encontró. Verifica su ubicación.")
+        except json.JSONDecodeError:
+            logging.error("Error al decodificar el archivo api_keys.json. Asegúrate de que tenga el formato correcto.")
+        except Exception as e:
+            logging.error(f"Error inesperado al consultar la API Graph: {e}")
+
+        return result
+
+
+
+
 
     @staticmethod
     async def send_text_message(recipient_id: str, text: str, api_key: str, cooldown: int = 60):
